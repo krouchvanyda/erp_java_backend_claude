@@ -68,8 +68,8 @@ app:
     jwt:
       issuer: ${JWT_ISSUER:erp}
       secret: ${JWT_SECRET:dev-secret-change-me-in-production-must-be-long-enough-for-hmac-sha256}
-      access-token-ttl: ${JWT_ACCESS_TTL:PT15M}
-      refresh-token-ttl: ${JWT_REFRESH_TTL:P14D}
+      access-token-ttl: ${JWT_ACCESS_TTL:P365D}
+      refresh-token-ttl: ${JWT_REFRESH_TTL:P365D}
   cors:
     allowed-hosts: ${CORS_ALLOWED_HOSTS:*}
     allowed-methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
