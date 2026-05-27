@@ -1,0 +1,65 @@
+package com.company.erp.features.users.controller;
+
+import com.company.erp.core.database.PageQuery;
+import com.company.erp.core.response.PageResponse;
+import com.company.erp.core.security.AuthenticatedUser;
+import com.company.erp.core.security.Permissions;
+import com.company.erp.features.users.dto.CreateUserRequest;
+import com.company.erp.features.users.dto.UpdateUserRequest;
+import com.company.erp.features.users.dto.UserDto;
+import com.company.erp.features.users.service.UserService;
+import jakarta.validation.Valid;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/v1/users")
+public class UserController {
+
+    private final UserService users;
+
+    public UserController(UserService users) {
+        this.users = users;
+    }
+
+    @GetMapping("/me")
+    public UserDto me() {
+        return UserDto.from(users.getById(AuthenticatedUser.require().userId()));
+    }
+
+    @GetMapping
+    @PreAuthorize("hasAuthority('" + Permissions.USER_READ + "')")
+    public PageResponse<UserDto> list(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String sort) {
+        return PageResponse.from(users.list(new PageQuery(page, pageSize, search, sort)), UserDto::from);
+    }
+
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('" + Permissions.USER_READ + "')")
+    public UserDto get(@PathVariable Long id) {
+        return UserDto.from(users.getById(id));
+    }
+
+    @PostMapping
+    @PreAuthorize("hasAuthority('" + Permissions.USER_WRITE + "')")
+    public UserDto create(@Valid @RequestBody CreateUserRequest body) {
+        return UserDto.from(users.create(body));
+    }
+
+    @PatchMapping("/{id}")
+    @PreAuthorize("hasAuthority('" + Permissions.USER_WRITE + "')")
+    public UserDto update(@PathVariable Long id,
+                          @Valid @RequestBody(required = false) UpdateUserRequest body) {
+        if (body == null) return UserDto.from(users.getById(id));
+        return UserDto.from(users.update(id, body));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAuthority('" + Permissions.USER_WRITE + "')")
+    public void delete(@PathVariable Long id) {
+        users.delete(id);
+    }
+}
