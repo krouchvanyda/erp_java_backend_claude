@@ -10,8 +10,18 @@ public record AppProperties(
         Cors cors,
         RateLimit rateLimit,
         Stream stream,
-        Fcm fcm
+        Fcm fcm,
+        Uploads uploads
 ) {
+
+    public record Uploads(Avatar avatar) {
+        public record Avatar(
+                String dir,
+                String publicBaseUrl,
+                long maxFileSize,
+                String allowedContentTypes
+        ) {}
+    }
 
     public record Security(Jwt jwt) {
         public record Jwt(

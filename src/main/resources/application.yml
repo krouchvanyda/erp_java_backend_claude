@@ -85,6 +85,12 @@ app:
   fcm:
     enabled: ${FCM_ENABLED:false}
     service-account-json-path: ${FCM_SERVICE_ACCOUNT_JSON_PATH:}
+  uploads:
+    avatar:
+      dir: ${UPLOAD_AVATAR_DIR:./uploads/avatars}
+      public-base-url: ${UPLOAD_AVATAR_PUBLIC_BASE_URL:/uploads/avatars}
+      max-file-size: ${UPLOAD_AVATAR_MAX_SIZE:5242880}        # 5 MiB
+      allowed-content-types: ${UPLOAD_AVATAR_ALLOWED_TYPES:image/jpeg,image/png,image/webp}
 
 logging:
   level:

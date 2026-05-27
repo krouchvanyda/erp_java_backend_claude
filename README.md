@@ -91,6 +91,9 @@ Migrations:
 | V5      | `V5__chat_module.sql`         | conversations, members, messages (planned)                     |
 | V6      | `V6__user_avatar.sql`         | user avatar column (planned)                                   |
 | V7      | `V7__voice_calls.sql`         | call sessions + participants (planned)                         |
+| V9      | `V9__employees.sql`           | employees table (HR profile, optional link to a login user)    |
+| V10     | `V10__employee_profile_extra_fields.sql` | adds `last_login_at`, `emergency_contact`, `emergency_phone`        |
+| V11     | `V11__employee_avatar_upload_meta.sql`   | adds `avatar_content_type` + `avatar_uploaded_at` columns to employees |
 
 Flyway is configured with `out-of-order: true`, so V2 (and any other gap) can
 be slotted in later between V1 and V3 without breaking applied history.
@@ -203,6 +206,151 @@ Returns the updated users as `UserDto[]`. The operation is transactional and
 atomic — if any `userId` doesn't exist or any role code is unknown, the whole
 call fails (`NOT_FOUND`) and nothing is persisted.
 
+## Employees
+
+HR-side employee profiles, separate from the login `User`. An `Employee` row
+*may* link to a `User` (`userId`, one-to-one) — this is how the mobile
+**My Profile** screen finds the current user's profile via
+`GET /api/v1/employees/me`.
+
+Photos on the My Profile screen change **only on the device** (per
+[TC-SET.3](#mobile-app-test-cases)); the server-side `avatarUrl` field is just
+a plain URL the client can set when persistence is desired — there is no
+upload endpoint on this module.
+
+### Fields
+
+| Field              | Type                                              | Notes                                                                                  |
+|--------------------|---------------------------------------------------|----------------------------------------------------------------------------------------|
+| `userId`           | `Long?`                                           | Unique. Set to link the profile to a login account.                                    |
+| `employeeNo`       | `String` (unique, required)                       | HR identifier (e.g. `EMP-00012`). Doubles as the "employee id / employee number".      |
+| `fullName`         | `String` (required)                               |                                                                                        |
+| `workEmail`        | `String?`                                         | Separate from login email.                                                             |
+| `phone`            | `String?`                                         |                                                                                        |
+| `position`         | `String?`                                         | Job title.                                                                             |
+| `department`       | `String?`                                         |                                                                                        |
+| `hireDate`         | `LocalDate?`                                      |                                                                                        |
+| `dateOfBirth`      | `LocalDate?`                                      |                                                                                        |
+| `gender`           | `String?`                                         | Free-form (e.g. `MALE`, `FEMALE`, `OTHER`).                                            |
+| `address`          | `String?`                                         |                                                                                        |
+| `avatarUrl`        | `String?`                                         | Public URL of the stored avatar. Set by the avatar upload endpoint (see below) or by client. |
+| `avatarContentType`| `String?` (read-only)                             | MIME type of the stored avatar (e.g. `image/jpeg`). Set by the avatar upload endpoint.       |
+| `avatarUploadedAt` | `Instant?` (read-only)                            | When the current avatar was uploaded. Set by the avatar upload endpoint.                     |
+| `emergencyContact` | `String?`                                         | Name of the emergency contact person.                                                  |
+| `emergencyPhone`   | `String?`                                         | Phone number for the emergency contact.                                                |
+| `lastLoginAt`      | `Instant?` (read-only)                            | Bumped automatically on successful login when an employee is linked to a user.         |
+| `tenure`           | `String?` (read-only, derived)                    | Computed from `hireDate` at read time, formatted `"<years>y <months>m"` (e.g. `2y 5m`).|
+| `status`           | `ACTIVE` / `INACTIVE` / `ON_LEAVE` / `TERMINATED` | Defaults to `ACTIVE`.                                                                  |
+
+### Endpoints
+
+```
+GET    /api/v1/employees/me              — current user's profile (404 if unlinked)
+GET    /api/v1/employees?page=…&pageSize=…&search=…&sort=fullName:asc
+GET    /api/v1/employees/{id}
+POST   /api/v1/employees                 — create
+PATCH  /api/v1/employees/{id}            — partial update (empty/no body = no-op)
+DELETE /api/v1/employees/{id}
+
+POST   /api/v1/employees/me/avatar       — upload current user's avatar (multipart `file`)
+DELETE /api/v1/employees/me/avatar       — remove current user's avatar
+POST   /api/v1/employees/{id}/avatar     — upload avatar (admin, `employee:write`)
+DELETE /api/v1/employees/{id}/avatar     — remove avatar (admin, `employee:write`)
+```
+
+`GET /me` is authenticated-only (any logged-in user). The CRUD endpoints
+require `employee:read` / `employee:write`. Search is case-insensitive
+substring across `fullName`, `employeeNo`, and `workEmail`. Allowed sort
+fields: `employeeNo`, `fullName`, `department`, `hireDate`, `status`,
+`createdAt`.
+
+### Avatar upload
+
+Server-side multipart upload — files are stored on the API host's filesystem
+and served back as static resources.
+
+```
+POST   /api/v1/employees/me/avatar     Content-Type: multipart/form-data
+                                        form field: file=<binary>
+DELETE /api/v1/employees/me/avatar
+```
+
+`/me` endpoints are authenticated-only (any logged-in user with an employee
+profile). The `/{id}/avatar` variants require `employee:write`.
+
+Constraints (env-overridable):
+
+| Setting                          | Default                                          |
+|----------------------------------|--------------------------------------------------|
+| `UPLOAD_AVATAR_DIR`              | `./uploads/avatars`                              |
+| `UPLOAD_AVATAR_PUBLIC_BASE_URL`  | `/uploads/avatars`                               |
+| `UPLOAD_AVATAR_MAX_SIZE`         | `5242880` (5 MiB)                                |
+| `UPLOAD_AVATAR_ALLOWED_TYPES`    | `image/jpeg,image/png,image/webp`                |
+
+On a successful upload, the response is the updated `EmployeeDto` with:
+
+```json
+{
+  "avatarUrl":         "/uploads/avatars/12-3f5e…b21.jpg",
+  "avatarContentType": "image/jpeg",
+  "avatarUploadedAt":  "2026-05-27T03:42:11Z"
+}
+```
+
+Files are served publicly (no auth) at the `publicBaseUrl` prefix — point an
+`<img src=…>` at `avatarUrl` to render. Replacing or deleting an avatar
+best-effort removes the previous file from disk.
+
+> The `My Profile` screen (TC-SET.3) still has the "Photo only changes on
+> this device" subtitle for a *local* preview before the user confirms.
+> Calling `POST /me/avatar` is what makes the change permanent on the server.
+
+### Startup backfill
+
+On every boot, `core.bootstrap.EmployeeBackfillBootstrap` ensures every
+existing `User` has a matching `Employee` row. New rows are created with:
+
+- `userId`     ← user's id (links the two records)
+- `employeeNo` ← `EMP-<userId padded to 5 digits>` (e.g. `EMP-00001`)
+- `fullName`   ← copied from the user
+- `workEmail`  ← copied from the user's login email
+- `phone`      ← copied from the user
+- `status`     ← `ACTIVE`
+
+It is idempotent — users that already have an employee row are skipped, so
+it's safe to leave running. HR can rename the generated `employeeNo` via
+`PATCH /api/v1/employees/{id}` whenever they want a custom number.
+
+### Sample requests
+
+Create:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/employees \
+  -H "Authorization: Bearer $TOK" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "userId":     5,
+        "employeeNo": "EMP-00012",
+        "fullName":   "Sok Dara",
+        "workEmail":  "dara@company.local",
+        "phone":      "+85512345678",
+        "position":   "Backend Engineer",
+        "department": "Engineering",
+        "hireDate":   "2025-01-15",
+        "status":     "ACTIVE"
+      }'
+```
+
+Fetch the signed-in user's profile (used by the mobile **My Profile** screen):
+
+```bash
+curl http://localhost:8080/api/v1/employees/me \
+  -H "Authorization: Bearer $TOK"
+```
+
+Returns `404 NOT_FOUND` if no employee row references the current user.
+
 ## Realtime chat & voice/video calls (planned)
 
 The `features/chats/` module exposes both a REST surface (for history, pagination, media uploads) and a STOMP-over-WebSocket surface (for live message and call-state fan-out).
@@ -304,6 +452,15 @@ The Users module is the working reference. To add a new feature `foo`:
 - `POST /api/v1/users/assign-roles` — bulk-assign roles to many users (ADD / REPLACE / REMOVE)
 - `GET /api/v1/roles` — list roles + their permissions
 - `GET /api/v1/roles/permissions` — list every permission code
+- `GET /api/v1/employees/me` — current user's employee profile (for the mobile My Profile screen)
+- `GET /api/v1/employees` — paginated list with search/filter (`employee:read`)
+- `POST /api/v1/employees` — create employee (`employee:write`)
+- `PATCH /api/v1/employees/{id}` — partial update (`employee:write`)
+- `DELETE /api/v1/employees/{id}` — delete (`employee:write`)
+- `POST /api/v1/employees/me/avatar` — upload current user's avatar (multipart `file`)
+- `DELETE /api/v1/employees/me/avatar` — remove current user's avatar
+- `POST /api/v1/employees/{id}/avatar` — admin: upload an employee's avatar (`employee:write`)
+- `DELETE /api/v1/employees/{id}/avatar` — admin: remove an employee's avatar (`employee:write`)
 - `GET /api/v1/products` — paginated list with search/filter (planned)
 - `GET /api/v1/chats/conversations` — paginated conversations for the current user (planned)
 - `POST /api/v1/chats/{convId}/calls` — initiate a voice/video call (planned)

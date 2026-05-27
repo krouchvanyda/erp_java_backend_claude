@@ -9,6 +9,7 @@ import com.company.erp.core.security.JwtService.RefreshClaims;
 import com.company.erp.features.auth.dto.*;
 import com.company.erp.features.auth.entity.RefreshToken;
 import com.company.erp.features.auth.repository.RefreshTokenRepository;
+import com.company.erp.features.employees.service.EmployeeService;
 import com.company.erp.features.users.dto.UserDto;
 import com.company.erp.features.users.entity.User;
 import com.company.erp.features.users.repository.UserRepository;
@@ -26,15 +27,18 @@ public class AuthService {
     private final RefreshTokenRepository refreshTokens;
     private final PasswordEncoder passwords;
     private final JwtService jwt;
+    private final EmployeeService employees;
 
     public AuthService(UserRepository users,
                        RefreshTokenRepository refreshTokens,
                        PasswordEncoder passwords,
-                       JwtService jwt) {
+                       JwtService jwt,
+                       EmployeeService employees) {
         this.users = users;
         this.refreshTokens = refreshTokens;
         this.passwords = passwords;
         this.jwt = jwt;
+        this.employees = employees;
     }
 
     public AuthResponse login(LoginRequest req) {
@@ -44,6 +48,7 @@ public class AuthService {
         if (!passwords.matches(req.password(), user.getPasswordHash())) {
             throw new UnauthorizedException("Invalid email or password");
         }
+        employees.touchLastLoginByUserId(user.getId());
         return issueTokens(user);
     }
 
