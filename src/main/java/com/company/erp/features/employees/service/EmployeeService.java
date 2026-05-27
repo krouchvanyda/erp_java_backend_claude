@@ -62,7 +62,6 @@ public class EmployeeService {
         e.setWorkEmail(req.workEmail());
         e.setPhone(req.phone());
         e.setPosition(req.position());
-        e.setRole(req.role());
         e.setDepartment(req.department());
         e.setHireDate(req.hireDate());
         e.setDateOfBirth(req.dateOfBirth());
