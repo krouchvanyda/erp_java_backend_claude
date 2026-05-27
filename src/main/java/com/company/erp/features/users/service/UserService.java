@@ -3,6 +3,7 @@ package com.company.erp.features.users.service;
 import com.company.erp.core.database.PageQuery;
 import com.company.erp.core.exceptions.ConflictException;
 import com.company.erp.core.exceptions.NotFoundException;
+import com.company.erp.features.users.dto.AssignRolesRequest;
 import com.company.erp.features.users.dto.CreateUserRequest;
 import com.company.erp.features.users.dto.UpdateUserRequest;
 import com.company.erp.features.users.entity.Role;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -77,6 +79,27 @@ public class UserService {
 
     public void delete(Long id) {
         users.delete(getById(id));
+    }
+
+    public List<User> assignRoles(AssignRolesRequest req) {
+        List<User> targets = users.findAllWithRolesByIdIn(req.userIds());
+        if (targets.size() != req.userIds().size()) {
+            Set<Long> found = targets.stream().map(User::getId).collect(Collectors.toSet());
+            Set<Long> missing = req.userIds().stream()
+                    .filter(id -> !found.contains(id))
+                    .collect(Collectors.toSet());
+            throw new NotFoundException("User(s) not found: " + missing);
+        }
+
+        Set<Role> resolved = new HashSet<>(resolveRoles(req.roles()));
+        for (User user : targets) {
+            switch (req.mode()) {
+                case ADD     -> user.getRoles().addAll(resolved);
+                case REMOVE  -> user.getRoles().removeAll(resolved);
+                case REPLACE -> user.setRoles(new HashSet<>(resolved));
+            }
+        }
+        return targets;
     }
 
     private Set<Role> resolveRoles(Set<String> codes) {

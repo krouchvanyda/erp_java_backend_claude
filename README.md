@@ -175,6 +175,34 @@ GET /api/v1/products?page=1&pageSize=20&search=shirt&sort=price:asc&minPrice=10&
 - Roles aggregate permissions; the seed migration ships `SUPER_ADMIN`, `ADMIN`, `STAFF`, `CUSTOMER`
 - Permission codes live in `com.company.erp.core.security.Permissions` — keep that constants file in sync with the V3 seed migration
 
+### Bulk role assignment
+
+Assign or revoke roles for many users in one call. Requires `user:write`.
+
+```
+POST /api/v1/users/assign-roles
+Content-Type: application/json
+Authorization: Bearer <accessToken>
+
+{
+  "userIds": [12, 17, 23],
+  "roles":   ["STAFF"],
+  "mode":    "ADD"          // ADD (default) | REPLACE | REMOVE
+}
+```
+
+Modes:
+
+| Mode      | Effect on each target user                                       |
+|-----------|------------------------------------------------------------------|
+| `ADD`     | Union the given roles into the user's existing role set          |
+| `REPLACE` | Set the user's roles to exactly the given set (empty = clear all)|
+| `REMOVE`  | Subtract the given roles from the user's existing role set       |
+
+Returns the updated users as `UserDto[]`. The operation is transactional and
+atomic — if any `userId` doesn't exist or any role code is unknown, the whole
+call fails (`NOT_FOUND`) and nothing is persisted.
+
 ## Realtime chat & voice/video calls (planned)
 
 The `features/chats/` module exposes both a REST surface (for history, pagination, media uploads) and a STOMP-over-WebSocket surface (for live message and call-state fan-out).
@@ -273,6 +301,7 @@ The Users module is the working reference. To add a new feature `foo`:
 - `POST /api/v1/auth/login` — get tokens
 - `GET /api/v1/users/me` — the current user
 - `GET /api/v1/users` — paginated list with search/filter
+- `POST /api/v1/users/assign-roles` — bulk-assign roles to many users (ADD / REPLACE / REMOVE)
 - `GET /api/v1/roles` — list roles + their permissions
 - `GET /api/v1/roles/permissions` — list every permission code
 - `GET /api/v1/products` — paginated list with search/filter (planned)

@@ -4,6 +4,7 @@ import com.company.erp.core.database.PageQuery;
 import com.company.erp.core.response.PageResponse;
 import com.company.erp.core.security.AuthenticatedUser;
 import com.company.erp.core.security.Permissions;
+import com.company.erp.features.users.dto.AssignRolesRequest;
 import com.company.erp.features.users.dto.CreateUserRequest;
 import com.company.erp.features.users.dto.UpdateUserRequest;
 import com.company.erp.features.users.dto.UserDto;
@@ -11,6 +12,8 @@ import com.company.erp.features.users.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/users")
@@ -61,5 +64,11 @@ public class UserController {
     @PreAuthorize("hasAuthority('" + Permissions.USER_WRITE + "')")
     public void delete(@PathVariable Long id) {
         users.delete(id);
+    }
+
+    @PostMapping("/assign-roles")
+    @PreAuthorize("hasAuthority('" + Permissions.USER_WRITE + "')")
+    public List<UserDto> assignRoles(@Valid @RequestBody AssignRolesRequest body) {
+        return users.assignRoles(body).stream().map(UserDto::from).toList();
     }
 }
