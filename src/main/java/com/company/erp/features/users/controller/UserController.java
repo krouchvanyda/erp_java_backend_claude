@@ -31,9 +31,12 @@ public class UserController {
         return UserDto.from(users.getById(AuthenticatedUser.require().userId()));
     }
 
-    /** List all users, paginated, with substring search on email / fullName. */
+    /**
+     * List all users, paginated, with substring search on email / fullName.
+     * Open to every authenticated user so the chat module can pick peers to
+     * message; mutating endpoints below still require {@code user:write}.
+     */
     @GetMapping
-    @PreAuthorize("hasAuthority('" + Permissions.USER_READ + "')")
     public PageResponse<UserDto> list(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize,
@@ -42,9 +45,8 @@ public class UserController {
         return PageResponse.from(users.list(new PageQuery(page, pageSize, search, sort)), UserDto::from);
     }
 
-    /** Get one user by id. */
+    /** Get one user by id. Open to every authenticated user (same reasoning as list). */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('" + Permissions.USER_READ + "')")
     public UserDto get(@PathVariable Long id) {
         return UserDto.from(users.getById(id));
     }

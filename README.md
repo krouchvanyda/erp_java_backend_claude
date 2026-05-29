@@ -428,10 +428,18 @@ frames arrive (no per-user subscription needed).
 **State model** — process-local `ConcurrentHashMap`s in
 `PresenceService`. CONNECT/DISCONNECT is driven by Spring's
 `SessionConnectedEvent` / `SessionDisconnectEvent`. BUSY is toggled
-by `ChatCallService` on call start / accept / hangup / end. Backgrounded
-or killed apps drop their session and flip to OFFLINE within a few seconds
-of the heartbeat timeout. **Multi-instance deployments need to move this
-to Redis** — same caveat as the rate limiter.
+by `ChatCallService` on call start / accept / hangup / end. **Multi-instance
+deployments need to move this to Redis** — same caveat as the rate limiter.
+
+**Detecting dead sockets** — the broker is configured in
+`WebSocketConfig` with a **10-second heartbeat** in both directions
+(`setHeartbeatValue(new long[]{10000, 10000})`) backed by a dedicated
+`ThreadPoolTaskScheduler`. When a mobile app is force-closed, the client
+heartbeat stops arriving and the broker fires `SessionDisconnectEvent`
+within ~20-30 seconds. Without this, the OS-level TCP keepalive on
+Linux only kicks in after **2 hours** — users would appear ONLINE
+indefinitely after a crash. If you tune the interval lower, the
+detection window shrinks but battery / bandwidth cost rises.
 
 ### Read receipts & inbox previews
 
@@ -465,6 +473,14 @@ at the service layer (non-members get `FORBIDDEN` on reads/writes scoped
 to a conv they're not in), and message edit/delete is still
 sender-restricted, but otherwise anyone with a valid access token can
 create conversations, send messages, react, and start calls.
+
+**The user directory is also open** — `GET /api/v1/users` and
+`GET /api/v1/users/{id}` no longer require `user:read`, so the chat
+module can hydrate the contact picker / member list / chat header avatar
+for any logged-in user (including `CUSTOMER`). The mutating endpoints
+(`POST` / `PATCH` / `DELETE` / `assign-roles`) still require
+`user:write`. If you ever need to lock the directory back down, restore
+the `@PreAuthorize` annotations on those two methods.
 
 ### STOMP wire protocol
 
