@@ -46,6 +46,10 @@ public class ChatCall extends BaseEntity {
     @Column(name = "end_reason")
     private String endReason;
 
+    /** Stream Video call id (e.g. "default:erp-call-42") — null until start completes. */
+    @Column(name = "stream_call_cid")
+    private String streamCallCid;
+
     @OneToMany(mappedBy = "call", fetch = FetchType.LAZY)
     private Set<ChatCallParticipant> participants = new HashSet<>();
 }

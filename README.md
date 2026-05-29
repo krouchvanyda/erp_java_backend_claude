@@ -96,6 +96,7 @@ Migrations:
 | V11     | `V11__employee_avatar_upload_meta.sql`   | adds `avatar_content_type` + `avatar_uploaded_at` columns to employees |
 | V13     | `V13__chat_module.sql`                   | conversations, members, messages, reactions                          |
 | V14     | `V14__chat_calls.sql`                    | call sessions + participants (signalling only)                       |
+| V15     | `V15__chat_call_stream_cid.sql`          | adds `stream_call_cid` column so clients join the same Stream call   |
 
 Flyway is configured with `out-of-order: true`, so V2 (and any other gap) can
 be slotted in later between V1 and V3 without breaking applied history.
@@ -387,6 +388,7 @@ POST   /api/v1/chats/calls/{id}/end                      hangup (caller end = al
 GET    /api/v1/chats/calls/{id}                          reconcile state
 GET    /api/v1/chats/calls                               my call history
 GET    /api/v1/chats/conversations/{id}/calls            per-conv call history
+GET    /api/v1/chats/calls/stream-token                  Stream Video JWT (media auth)
 ```
 
 ### Presence (online / busy / offline)
@@ -440,6 +442,23 @@ within ~20-30 seconds. Without this, the OS-level TCP keepalive on
 Linux only kicks in after **2 hours** — users would appear ONLINE
 indefinitely after a crash. If you tune the interval lower, the
 detection window shrinks but battery / bandwidth cost rises.
+
+**Mobile rendering map** — the server emits three statuses, but the
+mobile app should derive a fourth "Away" state from a fresh
+`lastSeenAt`. Suggested rendering:
+
+| Backend status | `lastSeenAt`         | What user B sees                                  |
+|----------------|----------------------|---------------------------------------------------|
+| `ONLINE`       | —                    | Green dot, "Online"                               |
+| `BUSY`         | —                    | Amber dot, "In a call"                            |
+| `OFFLINE`      | `< 5 min ago`        | Amber dot, "Away · last seen 2 minutes ago"       |
+| `OFFLINE`      | `≥ 5 min ago`        | No dot, "Last seen 8 minutes ago"                 |
+| `OFFLINE`      | `null`               | No dot, "Offline"                                 |
+
+The 5-minute cutoff lives entirely on the client — no server change
+needed. The window matches typical "phone briefly disconnected" patterns
+(walking into an elevator, switching Wi-Fi networks) without leaving
+users marked Away forever after a real close.
 
 ### Read receipts & inbox previews
 
@@ -513,6 +532,47 @@ documented in `CHAT_MODULE_GUIDE.md`:
 The Flutter client subscribes to `/topic/conversations/{convId}` for the
 open chat, plus `/user/queue/inbox` for live inbox previews and
 `/user/queue/calls` for incoming-call sheets.
+
+### Voice / video media (Stream Video)
+
+Signalling stays on our side (`ChatCall` + STOMP). Actual audio + video is
+carried by **Stream Video** — a managed SFU. The server's only job is to
+mint short-lived JWTs the mobile SDK uses to join the same call.
+
+**Setup**
+
+1. Sign up at [getstream.io/video](https://getstream.io/video/) (free tier
+   covers ~10,000 minutes/month). Create a project.
+2. Set the env vars (already declared in `application.yml` under
+   `app.stream.*`):
+
+   ```
+   STREAM_API_KEY=<your-key>
+   STREAM_API_SECRET=<your-secret>
+   STREAM_TOKEN_TTL_MINUTES=60
+   ```
+
+**Flow**
+
+1. Caller `POST /api/v1/chats/conversations/{convId}/calls` → server
+   creates a `ChatCall` row, generates a deterministic
+   `streamCallCid = "default:erp-call-{callId}"`, and returns it in the
+   `ChatCallDto`.
+2. Server fans `call.invite` over STOMP — every callee's
+   `/user/queue/calls` frame includes the `streamCallCid`.
+3. Each device (caller + accepter) calls
+   `GET /api/v1/chats/calls/stream-token` to mint a per-user Stream JWT
+   (TTL = `STREAM_TOKEN_TTL_MINUTES`).
+4. Mobile SDK: `client.joinCall(streamCallCid)` using that JWT. Stream
+   handles mic capture, Opus encoding, NAT traversal (STUN/TURN), and
+   group mixing.
+5. Hang up → `POST /api/v1/chats/calls/{id}/end` updates our state and
+   fans `call.hangup`. Mobile SDK leaves the Stream call.
+
+If `STREAM_API_KEY` / `STREAM_API_SECRET` are blank, the token endpoint
+returns `BAD_REQUEST` — the rest of the call ceremony still works (you
+just won't hear anything), so the signalling test cases pass even
+without Stream configured.
 
 ### What's NOT in this module (intentional)
 

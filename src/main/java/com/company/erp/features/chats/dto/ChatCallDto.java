@@ -18,6 +18,8 @@ public record ChatCallDto(
         Instant endedAt,
         Integer durationSeconds,
         String endReason,
+        /** Stream Video call CID — clients fetch a token and join this call for media. */
+        String streamCallCid,
         List<CallParticipantDto> participants
 ) {
     public static ChatCallDto from(ChatCall c, List<CallParticipantDto> participants) {
@@ -32,6 +34,7 @@ public record ChatCallDto(
                 c.getEndedAt(),
                 c.getDurationSeconds(),
                 c.getEndReason(),
+                c.getStreamCallCid(),
                 participants);
     }
 }

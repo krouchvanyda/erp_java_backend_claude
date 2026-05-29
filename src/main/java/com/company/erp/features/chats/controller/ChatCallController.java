@@ -6,11 +6,15 @@ import com.company.erp.core.security.AuthenticatedUser;
 import com.company.erp.features.chats.dto.CallParticipantDto;
 import com.company.erp.features.chats.dto.ChatCallDto;
 import com.company.erp.features.chats.dto.StartCallRequest;
+import com.company.erp.features.chats.dto.StreamTokenDto;
 import com.company.erp.features.chats.entity.ChatCall;
 import com.company.erp.features.chats.service.ChatCallService;
 import com.company.erp.features.chats.service.ConversationService;
+import com.company.erp.features.chats.service.StreamTokenService;
 import com.company.erp.features.chats.ws.ChatBroadcaster;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,16 +24,21 @@ import java.util.Map;
 @RequestMapping("/api/v1/chats")
 public class ChatCallController {
 
+    private static final Logger log = LoggerFactory.getLogger(ChatCallController.class);
+
     private final ChatCallService calls;
     private final ConversationService conversations;
     private final ChatBroadcaster broadcaster;
+    private final StreamTokenService streamTokens;
 
     public ChatCallController(ChatCallService calls,
                               ConversationService conversations,
-                              ChatBroadcaster broadcaster) {
+                              ChatBroadcaster broadcaster,
+                              StreamTokenService streamTokens) {
         this.calls = calls;
         this.conversations = conversations;
         this.broadcaster = broadcaster;
+        this.streamTokens = streamTokens;
     }
 
     /** My global call history across every conversation, newest-first. */
@@ -66,13 +75,18 @@ public class ChatCallController {
     @PostMapping("/conversations/{convId}/calls")
     public ChatCallDto start(@PathVariable Long convId, @Valid @RequestBody StartCallRequest body) {
         Long me = AuthenticatedUser.require().userId();
+        log.info("[call] START requested by user={} conv={} type={}", me, convId, body.type());
         ChatCall c = calls.start(convId, me, body);
         ChatCallDto dto = toDto(c);
+        log.info("[call] START ok callId={} streamCallCid={} participants={}",
+                c.getId(), c.getStreamCallCid(), dto.participants().size());
         broadcaster.toCall(convId, "call.invite", dto);
-        // Per-user invite, mirroring CHAT_MODULE_GUIDE.md's `/user/queue/calls`
         c.getParticipants().stream()
                 .filter(p -> !p.getUserId().equals(me))
-                .forEach(p -> broadcaster.toUser(p.getUserId(), "calls", "call.invite", dto));
+                .forEach(p -> {
+                    log.info("[call] INVITE fan-out callId={} → user={} (queue/calls)", c.getId(), p.getUserId());
+                    broadcaster.toUser(p.getUserId(), "calls", "call.invite", dto);
+                });
         return dto;
     }
 
@@ -80,8 +94,11 @@ public class ChatCallController {
     @PostMapping("/calls/{id}/accept")
     public ChatCallDto accept(@PathVariable Long id) {
         Long me = AuthenticatedUser.require().userId();
+        log.info("[call] ACCEPT callId={} by user={}", id, me);
         ChatCall c = calls.accept(id, me);
         ChatCallDto dto = toDto(c);
+        log.info("[call] ACCEPT ok callId={} status={} streamCallCid={}",
+                id, c.getStatus(), c.getStreamCallCid());
         broadcaster.toCall(c.getConversationId(), "call.accept",
                 Map.of("callId", id, "accepterId", me, "call", dto));
         return dto;
@@ -92,6 +109,7 @@ public class ChatCallController {
     public ChatCallDto reject(@PathVariable Long id,
                               @RequestParam(required = false) String reason) {
         Long me = AuthenticatedUser.require().userId();
+        log.info("[call] REJECT callId={} by user={} reason={}", id, me, reason);
         ChatCall c = calls.reject(id, me, reason);
         ChatCallDto dto = toDto(c);
         broadcaster.toCall(c.getConversationId(), "call.reject",
@@ -99,12 +117,25 @@ public class ChatCallController {
         return dto;
     }
 
+    /** Mint a short-lived Stream Video token so the mobile SDK can join the media call. */
+    @GetMapping("/calls/stream-token")
+    public StreamTokenDto streamToken() {
+        Long me = AuthenticatedUser.require().userId();
+        log.info("[stream] TOKEN requested by user={}", me);
+        StreamTokenDto dto = streamTokens.issueFor(me);
+        log.info("[stream] TOKEN ok user={} expiresAt={}", me, dto.expiresAt());
+        return dto;
+    }
+
     /** Hang up a call. Caller ending = everyone disconnects; last callee ending = caller auto-ends. */
     @PostMapping("/calls/{id}/end")
     public ChatCallDto end(@PathVariable Long id) {
         Long me = AuthenticatedUser.require().userId();
+        log.info("[call] END callId={} by user={}", id, me);
         ChatCall c = calls.hangup(id, me);
         ChatCallDto dto = toDto(c);
+        log.info("[call] END ok callId={} status={} durationSec={} reason={}",
+                id, c.getStatus(), c.getDurationSeconds(), c.getEndReason());
         broadcaster.toCall(c.getConversationId(), "call.hangup",
                 Map.of("callId", id, "hangerUpperId", me, "call", dto));
         return dto;

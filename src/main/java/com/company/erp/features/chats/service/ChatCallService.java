@@ -30,15 +30,18 @@ public class ChatCallService {
     private final ChatCallParticipantRepository participants;
     private final ConversationService conversations;
     private final PresenceService presence;
+    private final StreamTokenService streamTokens;
 
     public ChatCallService(ChatCallRepository calls,
                            ChatCallParticipantRepository participants,
                            ConversationService conversations,
-                           PresenceService presence) {
+                           PresenceService presence,
+                           StreamTokenService streamTokens) {
         this.calls = calls;
         this.participants = participants;
         this.conversations = conversations;
         this.presence = presence;
+        this.streamTokens = streamTokens;
     }
 
     @Transactional(readOnly = true)
@@ -73,6 +76,9 @@ public class ChatCallService {
         c.setStatus(CallStatus.RINGING);
         c.setStartedAt(Instant.now());
         calls.save(c);
+        // Now that the row has an id, stamp the Stream Video CID so every
+        // participant joins the same Stream call.
+        c.setStreamCallCid(streamTokens.cidForCall(c.getId()));
 
         for (Long uid : conversations.memberUserIds(convId)) {
             ChatCallParticipant p = new ChatCallParticipant();
