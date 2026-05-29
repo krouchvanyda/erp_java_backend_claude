@@ -5,6 +5,7 @@ import com.company.erp.core.exceptions.BadRequestException;
 import com.company.erp.core.exceptions.NotFoundException;
 import com.company.erp.features.chats.dto.StartCallRequest;
 import com.company.erp.features.chats.entity.*;
+import com.company.erp.features.chats.presence.PresenceService;
 import com.company.erp.features.chats.repository.ChatCallParticipantRepository;
 import com.company.erp.features.chats.repository.ChatCallRepository;
 import org.springframework.data.domain.Page;
@@ -28,13 +29,16 @@ public class ChatCallService {
     private final ChatCallRepository calls;
     private final ChatCallParticipantRepository participants;
     private final ConversationService conversations;
+    private final PresenceService presence;
 
     public ChatCallService(ChatCallRepository calls,
                            ChatCallParticipantRepository participants,
-                           ConversationService conversations) {
+                           ConversationService conversations,
+                           PresenceService presence) {
         this.calls = calls;
         this.participants = participants;
         this.conversations = conversations;
+        this.presence = presence;
     }
 
     @Transactional(readOnly = true)
@@ -82,6 +86,8 @@ public class ChatCallService {
             }
             participants.save(p);
         }
+        // Caller is busy from the moment the call starts.
+        presence.markBusy(callerId);
         // Reload via the EntityGraph so the caller can read c.getParticipants()
         // after the @Transactional boundary closes.
         return calls.findWithParticipantsById(c.getId())
@@ -104,6 +110,7 @@ public class ChatCallService {
             c.setStatus(CallStatus.ANSWERED);
             c.setAnsweredAt(Instant.now());
         }
+        presence.markBusy(userId);
         return c;
     }
 
@@ -150,6 +157,9 @@ public class ChatCallService {
                             || x.getStatus() == ParticipantStatus.ANSWERED);
         if (!anyoneStillActive && c.getStatus() != CallStatus.ENDED) {
             endCallInternal(c, CallStatus.ENDED, "all_callees_left");
+        } else {
+            // Call continues; the user who left is no longer BUSY.
+            presence.clearBusy(userId);
         }
         return c;
     }
@@ -178,5 +188,15 @@ public class ChatCallService {
         } else {
             c.setDurationSeconds(0);
         }
+        // Clear BUSY for everyone who was active in this call.
+        for (ChatCallParticipant p : c.getParticipants()) {
+            if (p.getStatus() == ParticipantStatus.ANSWERED
+                    || p.getStatus() == ParticipantStatus.LEFT) {
+                presence.clearBusy(p.getUserId());
+            }
+        }
+        // Caller, even if they never "answered", was busy from start.
+        presence.clearBusy(c.getCallerId());
     }
+
 }

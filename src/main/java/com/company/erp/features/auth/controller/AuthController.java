@@ -23,21 +23,25 @@ public class AuthController {
         this.auth = auth;
     }
 
+    /** Exchange email + password for an access + refresh token pair. */
     @PostMapping("/login")
     public AuthResponse login(@Valid @RequestBody LoginRequest body) {
         return auth.login(body);
     }
 
+    /** Create a new user account and immediately issue tokens for them. */
     @PostMapping("/register")
     public AuthResponse register(@Valid @RequestBody RegisterRequest body) {
         return auth.register(body);
     }
 
+    /** Rotate tokens — exchange a refresh token for a new access + refresh pair. */
     @PostMapping("/refresh")
     public AuthResponse refresh(@Valid @RequestBody RefreshRequest body) {
         return auth.refresh(body);
     }
 
+    /** Revoke a refresh token; always succeeds even if the token is unknown. */
     @PostMapping("/logout")
     public ApiResponse<Void> logout(@Valid @RequestBody LogoutRequest body) {
         auth.logout(body);

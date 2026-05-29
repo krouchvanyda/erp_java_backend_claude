@@ -25,11 +25,13 @@ public class UserController {
         this.users = users;
     }
 
+    /** Get the currently authenticated user (roles + flattened permissions). */
     @GetMapping("/me")
     public UserDto me() {
         return UserDto.from(users.getById(AuthenticatedUser.require().userId()));
     }
 
+    /** List all users, paginated, with substring search on email / fullName. */
     @GetMapping
     @PreAuthorize("hasAuthority('" + Permissions.USER_READ + "')")
     public PageResponse<UserDto> list(
@@ -40,18 +42,21 @@ public class UserController {
         return PageResponse.from(users.list(new PageQuery(page, pageSize, search, sort)), UserDto::from);
     }
 
+    /** Get one user by id. */
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('" + Permissions.USER_READ + "')")
     public UserDto get(@PathVariable Long id) {
         return UserDto.from(users.getById(id));
     }
 
+    /** Create a new user with bcrypt-hashed password and optional roles. */
     @PostMapping
     @PreAuthorize("hasAuthority('" + Permissions.USER_WRITE + "')")
     public UserDto create(@Valid @RequestBody CreateUserRequest body) {
         return UserDto.from(users.create(body));
     }
 
+    /** Partial update — only fields present in the body are touched (null body = no-op). */
     @PatchMapping("/{id}")
     @PreAuthorize("hasAuthority('" + Permissions.USER_WRITE + "')")
     public UserDto update(@PathVariable Long id,
@@ -60,12 +65,14 @@ public class UserController {
         return UserDto.from(users.update(id, body));
     }
 
+    /** Hard-delete a user (their refresh tokens are cascaded by the DB). */
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('" + Permissions.USER_WRITE + "')")
     public void delete(@PathVariable Long id) {
         users.delete(id);
     }
 
+    /** Bulk-assign roles to many users at once: mode = ADD (default) | REPLACE | REMOVE. */
     @PostMapping("/assign-roles")
     @PreAuthorize("hasAuthority('" + Permissions.USER_WRITE + "')")
     public List<UserDto> assignRoles(@Valid @RequestBody AssignRolesRequest body) {

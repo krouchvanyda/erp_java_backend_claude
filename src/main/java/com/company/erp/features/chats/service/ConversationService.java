@@ -136,6 +136,30 @@ public class ConversationService {
         return c;
     }
 
+    /**
+     * Hard-delete a conversation (and, via DB-level ON DELETE CASCADE, all of
+     * its messages, members, reactions, calls, and call participants).
+     *
+     * <ul>
+     *   <li>GROUP: only the conversation admin may delete.</li>
+     *   <li>DIRECT: either participant may delete.</li>
+     * </ul>
+     *
+     * Returns the set of user ids that were members of the conversation at
+     * deletion time, so the controller can fan a {@code conversation.remove}
+     * envelope to each of them.
+     */
+    public Set<Long> delete(Long convId, Long actorId) {
+        Conversation c = getForUser(convId, actorId);
+        if (c.getType() == ConversationType.GROUP) {
+            requireAdmin(c, actorId);
+        }
+        // Snapshot member ids BEFORE the cascade wipes the join table.
+        Set<Long> formerMembers = new HashSet<>(conversations.findMemberUserIds(convId));
+        conversations.delete(c);
+        return formerMembers;
+    }
+
     public ConversationMember markRead(Long convId, Long userId, Long lastReadMessageId) {
         ConversationMember m = requireMember(convId, userId);
         m.setLastReadMessageId(lastReadMessageId);

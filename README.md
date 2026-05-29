@@ -367,6 +367,8 @@ POST   /api/v1/chats/conversations                       create direct or group
 GET    /api/v1/chats/conversations?page=&pageSize=       inbox (paginated, newest-first)
 GET    /api/v1/chats/conversations/{id}                  get one + members + unread
 PATCH  /api/v1/chats/conversations/{id}                  rename / set avatar (admin)
+DELETE /api/v1/chats/conversations/{id}                  delete whole conversation
+                                                          (GROUP: admin only; DIRECT: either party)
 POST   /api/v1/chats/conversations/{id}/members          add members (admin)
 DELETE /api/v1/chats/conversations/{id}/members/{userId} remove (admin, or self leave)
 POST   /api/v1/chats/conversations/{id}/read             mark-as-read (set lastReadMessageId)
@@ -386,6 +388,76 @@ GET    /api/v1/chats/calls/{id}                          reconcile state
 GET    /api/v1/chats/calls                               my call history
 GET    /api/v1/chats/conversations/{id}/calls            per-conv call history
 ```
+
+### Presence (online / busy / offline)
+
+The server tracks each user's STOMP session count plus an in-call BUSY flag,
+and broadcasts changes live.
+
+```
+GET    /api/v1/chats/presence              snapshot of everyone the service has seen
+GET    /api/v1/chats/presence?ids=1,2,3    batch presence for these user ids
+GET    /api/v1/chats/presence/{userId}     single user
+```
+
+Response shape:
+
+```json
+[
+  {"userId": 1, "status": "ONLINE",  "lastSeenAt": null},
+  {"userId": 4, "status": "BUSY",    "lastSeenAt": null},
+  {"userId": 7, "status": "OFFLINE", "lastSeenAt": "2026-05-29T08:14:02Z"}
+]
+```
+
+| Status   | Meaning                                                    |
+|----------|------------------------------------------------------------|
+| `ONLINE` | At least one active STOMP session, and not in a call       |
+| `BUSY`   | At least one active STOMP session **and** in an active call (caller while RINGING, accepter from accept) |
+| `OFFLINE`| No active STOMP sessions                                   |
+
+**Live updates** — every status change is pushed to a public topic:
+
+```
+/topic/presence    →    { "event": "presence.update", "payload": <PresenceDto> }
+```
+
+Clients can subscribe once on connect and update a local user→status map as
+frames arrive (no per-user subscription needed).
+
+**State model** — process-local `ConcurrentHashMap`s in
+`PresenceService`. CONNECT/DISCONNECT is driven by Spring's
+`SessionConnectedEvent` / `SessionDisconnectEvent`. BUSY is toggled
+by `ChatCallService` on call start / accept / hangup / end. Backgrounded
+or killed apps drop their session and flip to OFFLINE within a few seconds
+of the heartbeat timeout. **Multi-instance deployments need to move this
+to Redis** — same caveat as the rate limiter.
+
+### Read receipts & inbox previews
+
+- **Inbox `lastMessage`** — every `ConversationDto` now includes a populated
+  `lastMessage: MessageDto` (or `null` if the conv has no messages yet).
+  Clients compose previews like `"You: hi"` / `"📷 Photo"` /
+  `"🎤 Voice · 0:03"` from `lastMessage.type` + `lastMessage.body` +
+  `lastMessage.senderId == me`.
+- **Per-viewer `unreadCount`** — derived from `chat_conversation_members.last_read_message_id`.
+- **Per-message `readByUserIds`** on `MessageDto` — the set of conversation
+  members (excluding the sender) whose `lastReadMessageId >= message.id`.
+  Derived at read time, no separate `chat_message_reads` table.
+- **`POST /…/{id}/read`** now also broadcasts `message.read` to
+  `/topic/conversations/{id}` so other clients can flip their ✓ tick on
+  affected bubbles live, plus `conversation.update` to the caller's
+  `/user/queue/inbox` so the badge clears across all their devices.
+
+The `message.read` envelope payload is:
+
+```json
+{ "conversationId": 5, "userId": 4, "lastReadMessageId": 42 }
+```
+
+Clients should find the matching member in their cache, set its
+`lastReadMessageId`, then re-derive `readByUserIds` on every visible
+message in that conversation.
 
 **Chat is open to every authenticated user** — no `chat:read` / `chat:write`
 permission gate. Membership of a specific conversation is still enforced
@@ -409,7 +481,8 @@ connection. The user's id becomes the STOMP session principal (so
 
 | Destination                              | Type   | Payload                                              |
 |------------------------------------------|--------|------------------------------------------------------|
-| `/topic/conversations/{convId}`          | public | message.send / message.edit / message.delete / reaction.toggle / conversation.update |
+| `/topic/conversations/{convId}`          | public | message.send / message.edit / message.delete / reaction.toggle / message.read / conversation.update |
+| `/topic/presence`                        | public | presence.update — user went ONLINE / BUSY / OFFLINE |
 | `/topic/conversations/{convId}/call`     | public | call.invite / call.accept / call.reject / call.hangup |
 | `/user/queue/inbox`                      | private | conversation.create / conversation.update / conversation.remove / message.send (inbox preview) |
 | `/user/queue/calls`                      | private | call.invite (per-callee fan-out, mirrors the guide)  |

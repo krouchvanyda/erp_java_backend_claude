@@ -32,6 +32,7 @@ public class ChatCallController {
         this.broadcaster = broadcaster;
     }
 
+    /** My global call history across every conversation, newest-first. */
     @GetMapping("/calls")
     public PageResponse<ChatCallDto> myHistory(
             @RequestParam(defaultValue = "1") int page,
@@ -42,6 +43,7 @@ public class ChatCallController {
                 this::toDto);
     }
 
+    /** Call history for a single conversation (Chat Info "Recent calls" section). */
     @GetMapping("/conversations/{convId}/calls")
     public PageResponse<ChatCallDto> conversationHistory(
             @PathVariable Long convId,
@@ -53,12 +55,14 @@ public class ChatCallController {
                 this::toDto);
     }
 
+    /** Fetch a call's current state for reconciliation after a reconnect. */
     @GetMapping("/calls/{id}")
     public ChatCallDto get(@PathVariable Long id) {
         AuthenticatedUser.require();
         return toDto(calls.getById(id));
     }
 
+    /** Start a voice or video call in a conversation; rings every other member. */
     @PostMapping("/conversations/{convId}/calls")
     public ChatCallDto start(@PathVariable Long convId, @Valid @RequestBody StartCallRequest body) {
         Long me = AuthenticatedUser.require().userId();
@@ -72,6 +76,7 @@ public class ChatCallController {
         return dto;
     }
 
+    /** Callee accepts a ringing call; flips status to ANSWERED + marks them BUSY. */
     @PostMapping("/calls/{id}/accept")
     public ChatCallDto accept(@PathVariable Long id) {
         Long me = AuthenticatedUser.require().userId();
@@ -82,6 +87,7 @@ public class ChatCallController {
         return dto;
     }
 
+    /** Callee declines a ringing call with an optional reason (e.g. "busy"). */
     @PostMapping("/calls/{id}/reject")
     public ChatCallDto reject(@PathVariable Long id,
                               @RequestParam(required = false) String reason) {
@@ -93,6 +99,7 @@ public class ChatCallController {
         return dto;
     }
 
+    /** Hang up a call. Caller ending = everyone disconnects; last callee ending = caller auto-ends. */
     @PostMapping("/calls/{id}/end")
     public ChatCallDto end(@PathVariable Long id) {
         Long me = AuthenticatedUser.require().userId();
