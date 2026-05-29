@@ -94,6 +94,8 @@ Migrations:
 | V9      | `V9__employees.sql`           | employees table (HR profile, optional link to a login user)    |
 | V10     | `V10__employee_profile_extra_fields.sql` | adds `last_login_at`, `emergency_contact`, `emergency_phone`        |
 | V11     | `V11__employee_avatar_upload_meta.sql`   | adds `avatar_content_type` + `avatar_uploaded_at` columns to employees |
+| V13     | `V13__chat_module.sql`                   | conversations, members, messages, reactions                          |
+| V14     | `V14__chat_calls.sql`                    | call sessions + participants (signalling only)                       |
 
 Flyway is configured with `out-of-order: true`, so V2 (and any other gap) can
 be slotted in later between V1 and V3 without breaking applied history.
@@ -351,58 +353,96 @@ curl http://localhost:8080/api/v1/employees/me \
 
 Returns `404 NOT_FOUND` if no employee row references the current user.
 
-## Realtime chat & voice/video calls (planned)
+## Realtime chat & voice/video calls
 
-The `features/chats/` module exposes both a REST surface (for history, pagination, media uploads) and a STOMP-over-WebSocket surface (for live message and call-state fan-out).
+Backs **Module 10** from `CHAT_MODULE_GUIDE.md`. Conversations (1:1 + group),
+messages (text/image/voice/file metadata), reactions, replies, edits,
+deletes, group management, and voice/video call **signalling** (no WebRTC /
+Stream — only the ceremony). All writes go over REST and fan out via STOMP.
 
-### REST endpoints (selection)
-
-```
-POST /api/v1/chats/conversations                       — create a 1:1 or group conversation
-GET  /api/v1/chats/conversations?page=…&pageSize=…     — paginated conversation list
-GET  /api/v1/chats/conversations/{id}/messages         — paginated message history
-POST /api/v1/chats/conversations/{id}/messages         — send a message
-POST /api/v1/chats/uploads                             — upload attachment, returns CDN URL
-
-POST /api/v1/chats/{convId}/calls                      — initiate a call (returns CallSessionDto)
-POST /api/v1/chats/calls/{callId}/accept|reject|end    — call lifecycle
-GET  /api/v1/chats/calls/{callId}                      — fetch current call state (reconciliation)
-GET  /api/v1/chats/calls/stream-token                  — short-lived Stream Video JWT for the client
-```
-
-All endpoints sit behind `@PreAuthorize("hasAuthority(Permissions.CHAT_READ|CHAT_WRITE)")`.
-
-### WebSocket
-
-- Endpoint: `/ws` (SockJS-compatible). Authenticate with `Authorization: Bearer <accessToken>` on the CONNECT frame.
-- Destinations:
-  - `/topic/conversations/{convId}` — message stream for a conversation
-  - `/topic/conversations/{convId}/call` — per-call state transitions (`RINGING → ACTIVE → ENDED`)
-  - `/user/queue/calls` — per-user incoming-call invite (private destination)
-  - `/app/...` — client → server send destinations handled by the chat signaling controller
-
-### Voice/video
-
-The actual A/V stream runs on **Stream Video**, not on this server. Flow:
-
-1. Caller `POST /api/v1/chats/{convId}/calls` → backend creates a `CallSession` (status `RINGING`, `streamCallCid` allocated) and stores participants.
-2. Backend broadcasts the invite via STOMP to each callee's `/user/queue/calls`, **and** sends an FCM data-message for backgrounded devices.
-3. Each side calls `GET /api/v1/chats/calls/stream-token` to obtain a short-lived JWT, then joins `streamCallCid` directly on Stream's SDK.
-4. Lifecycle endpoints (`accept`/`reject`/`end`) update server state and fan-out STOMP frames on `/topic/conversations/{convId}/call`.
-5. A `CallTimeoutScheduler` auto-terminates calls that stay in `RINGING` past the configured TTL.
-
-Required configuration (in `.env` or environment):
+### REST endpoints
 
 ```
-STREAM_API_KEY=…
-STREAM_API_SECRET=…
-STREAM_TOKEN_TTL_MINUTES=60     # default
+POST   /api/v1/chats/conversations                       create direct or group
+GET    /api/v1/chats/conversations?page=&pageSize=       inbox (paginated, newest-first)
+GET    /api/v1/chats/conversations/{id}                  get one + members + unread
+PATCH  /api/v1/chats/conversations/{id}                  rename / set avatar (admin)
+POST   /api/v1/chats/conversations/{id}/members          add members (admin)
+DELETE /api/v1/chats/conversations/{id}/members/{userId} remove (admin, or self leave)
+POST   /api/v1/chats/conversations/{id}/read             mark-as-read (set lastReadMessageId)
 
-FCM_ENABLED=true                # default false; when false, push is skipped
-FCM_SERVICE_ACCOUNT_JSON_PATH=/secrets/firebase-sa.json
+GET    /api/v1/chats/conversations/{id}/messages         paginated history
+GET    /api/v1/chats/conversations/{id}/messages/search  case-insensitive substring
+POST   /api/v1/chats/conversations/{id}/messages         send (text/image/voice/file)
+PATCH  /api/v1/chats/messages/{id}                       edit (sender, 15-min window, TEXT only)
+DELETE /api/v1/chats/messages/{id}                       soft-delete
+POST   /api/v1/chats/messages/{id}/reactions             toggle emoji
+
+POST   /api/v1/chats/conversations/{id}/calls            start (VOICE | VIDEO)
+POST   /api/v1/chats/calls/{id}/accept                   callee accepts
+POST   /api/v1/chats/calls/{id}/reject?reason=…          callee declines
+POST   /api/v1/chats/calls/{id}/end                      hangup (caller end = all end)
+GET    /api/v1/chats/calls/{id}                          reconcile state
+GET    /api/v1/chats/calls                               my call history
+GET    /api/v1/chats/conversations/{id}/calls            per-conv call history
 ```
 
-When `FCM_ENABLED=false` the push service no-ops (useful in dev / tests). When `STREAM_API_KEY` is empty, `/chats/calls/stream-token` will return an error — set both keys before exercising calls.
+All read endpoints require `chat:read`; all writes require `chat:write`.
+Membership is enforced at the service layer — non-members get `FORBIDDEN`
+even if they have the permission code.
+
+### STOMP wire protocol
+
+Endpoint: `ws://<host>/ws` (or `/ws-sockjs` for browser SockJS fallback).
+On the CONNECT frame, the client must send:
+
+```
+Authorization: Bearer <accessToken>
+```
+
+The JWT is validated by `StompAuthChannelInterceptor`; failure rejects the
+connection. The user's id becomes the STOMP session principal (so
+`/user/queue/...` routes work).
+
+| Destination                              | Type   | Payload                                              |
+|------------------------------------------|--------|------------------------------------------------------|
+| `/topic/conversations/{convId}`          | public | message.send / message.edit / message.delete / reaction.toggle / conversation.update |
+| `/topic/conversations/{convId}/call`     | public | call.invite / call.accept / call.reject / call.hangup |
+| `/user/queue/inbox`                      | private | conversation.create / conversation.update / conversation.remove / message.send (inbox preview) |
+| `/user/queue/calls`                      | private | call.invite (per-callee fan-out, mirrors the guide)  |
+
+Every frame is wrapped in this envelope, matching the wire envelopes
+documented in `CHAT_MODULE_GUIDE.md`:
+
+```json
+{ "event": "message.send", "payload": { /* MessageDto, ConversationDto, … */ } }
+```
+
+The Flutter client subscribes to `/topic/conversations/{convId}` for the
+open chat, plus `/user/queue/inbox` for live inbox previews and
+`/user/queue/calls` for incoming-call sheets.
+
+### What's NOT in this module (intentional)
+
+| Capability | Why | Where it'd live |
+|---|---|---|
+| WebRTC media | Out of scope — signalling only | A media SFU (LiveKit, Stream Video, Janus) |
+| Attachment binary upload | Messages carry `attachmentUrl` only | Mirror the employee-avatar pattern under `/api/v1/chats/uploads`, then put the URL in the `SendMessage` body |
+| FCM push for backgrounded calls | Disabled by default | `FCM_ENABLED=true` + service-account JSON, then a hook off `call.invite` |
+| 30-second ring timeout | Hook exists on `ChatCallService` but no scheduler is wired | Add a `@Scheduled` sweep that calls `markMissedIfStaleRinging(...)` for every RINGING call |
+| Typing indicators | Not in the guide | Easy follow-up — `/app/conversations/{id}/typing` STOMP send |
+
+### Tables
+
+| Migration | Purpose |
+|---|---|
+| `V13__chat_module.sql` | `chat_conversations`, `chat_conversation_members`, `chat_messages`, `chat_message_reactions` |
+| `V14__chat_calls.sql`  | `chat_calls`, `chat_call_participants` |
+
+Unread counts are derived per member from `lastReadMessageId` (no separate
+table). The `chat_conversations.last_message_id` / `last_message_at` are
+denormalised to keep the inbox query a single sort without joining
+messages.
 
 ## Tests
 
@@ -462,10 +502,12 @@ The Users module is the working reference. To add a new feature `foo`:
 - `POST /api/v1/employees/{id}/avatar` — admin: upload an employee's avatar (`employee:write`)
 - `DELETE /api/v1/employees/{id}/avatar` — admin: remove an employee's avatar (`employee:write`)
 - `GET /api/v1/products` — paginated list with search/filter (planned)
-- `GET /api/v1/chats/conversations` — paginated conversations for the current user (planned)
-- `POST /api/v1/chats/{convId}/calls` — initiate a voice/video call (planned)
-- `GET /api/v1/chats/calls/stream-token` — Stream Video JWT for the client (planned)
-- `ws://…/ws` — STOMP WebSocket endpoint for live chat and call signaling (planned)
+- `GET /api/v1/chats/conversations` — paginated conversations for the current user (`chat:read`)
+- `POST /api/v1/chats/conversations` — create direct or group conversation (`chat:write`)
+- `POST /api/v1/chats/conversations/{id}/messages` — send a message (`chat:write`)
+- `POST /api/v1/chats/conversations/{id}/calls` — initiate a voice/video call (`chat:write`)
+- `GET /api/v1/chats/calls` — current user's call history
+- `ws://…/ws` — STOMP WebSocket endpoint for live chat and call signaling
 
 
 ***list pagination users

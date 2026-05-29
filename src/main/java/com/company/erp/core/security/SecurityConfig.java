@@ -58,6 +58,7 @@ public class SecurityConfig {
                                 "/error",
                                 "/ws/**",
                                 "/uploads/**",
+                                "/ws-sockjs/**",
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/register",
                                 "/api/v1/auth/refresh"
