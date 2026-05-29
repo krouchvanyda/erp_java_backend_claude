@@ -3,7 +3,6 @@ package com.company.erp.features.chats.controller;
 import com.company.erp.core.database.PageQuery;
 import com.company.erp.core.response.PageResponse;
 import com.company.erp.core.security.AuthenticatedUser;
-import com.company.erp.core.security.Permissions;
 import com.company.erp.features.chats.dto.*;
 import com.company.erp.features.chats.entity.Conversation;
 import com.company.erp.features.chats.entity.ConversationMember;
@@ -11,7 +10,6 @@ import com.company.erp.features.chats.repository.ConversationMemberRepository;
 import com.company.erp.features.chats.service.ConversationService;
 import com.company.erp.features.chats.ws.ChatBroadcaster;
 import jakarta.validation.Valid;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -19,7 +17,6 @@ import java.util.Set;
 
 @RestController
 @RequestMapping("/api/v1/chats/conversations")
-@PreAuthorize("hasAuthority('" + Permissions.CHAT_READ + "')")
 public class ConversationController {
 
     private final ConversationService conversations;
@@ -53,7 +50,6 @@ public class ConversationController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('" + Permissions.CHAT_WRITE + "')")
     public ConversationDto create(@Valid @RequestBody CreateConversationRequest body) {
         Long me = AuthenticatedUser.require().userId();
         Conversation c = conversations.create(me, body);
@@ -63,7 +59,6 @@ public class ConversationController {
     }
 
     @PatchMapping("/{id}")
-    @PreAuthorize("hasAuthority('" + Permissions.CHAT_WRITE + "')")
     public ConversationDto update(@PathVariable Long id, @Valid @RequestBody UpdateConversationRequest body) {
         Long me = AuthenticatedUser.require().userId();
         Conversation c = conversations.update(id, me, body);
@@ -74,7 +69,6 @@ public class ConversationController {
     }
 
     @PostMapping("/{id}/members")
-    @PreAuthorize("hasAuthority('" + Permissions.CHAT_WRITE + "')")
     public ConversationDto addMembers(@PathVariable Long id, @Valid @RequestBody AddMembersRequest body) {
         Long me = AuthenticatedUser.require().userId();
         Conversation c = conversations.addMembers(id, me, body);
@@ -85,7 +79,6 @@ public class ConversationController {
     }
 
     @DeleteMapping("/{id}/members/{userId}")
-    @PreAuthorize("hasAuthority('" + Permissions.CHAT_WRITE + "')")
     public ConversationDto removeMember(@PathVariable Long id, @PathVariable Long userId) {
         Long me = AuthenticatedUser.require().userId();
         Conversation c = conversations.removeMember(id, me, userId);

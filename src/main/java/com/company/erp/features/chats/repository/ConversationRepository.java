@@ -26,6 +26,7 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
     Page<Conversation> findAllForUser(@Param("userId") Long userId, Pageable pageable);
 
     /** Returns the DIRECT conversation that contains exactly the two given users, if any. */
+    @EntityGraph(attributePaths = {"members"})
     @Query("""
             SELECT c FROM Conversation c
             WHERE c.type = com.company.erp.features.chats.entity.ConversationType.DIRECT

@@ -3,7 +3,6 @@ package com.company.erp.features.chats.controller;
 import com.company.erp.core.database.PageQuery;
 import com.company.erp.core.response.PageResponse;
 import com.company.erp.core.security.AuthenticatedUser;
-import com.company.erp.core.security.Permissions;
 import com.company.erp.features.chats.dto.CallParticipantDto;
 import com.company.erp.features.chats.dto.ChatCallDto;
 import com.company.erp.features.chats.dto.StartCallRequest;
@@ -12,7 +11,6 @@ import com.company.erp.features.chats.service.ChatCallService;
 import com.company.erp.features.chats.service.ConversationService;
 import com.company.erp.features.chats.ws.ChatBroadcaster;
 import jakarta.validation.Valid;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,7 +18,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/chats")
-@PreAuthorize("hasAuthority('" + Permissions.CHAT_READ + "')")
 public class ChatCallController {
 
     private final ChatCallService calls;
@@ -63,7 +60,6 @@ public class ChatCallController {
     }
 
     @PostMapping("/conversations/{convId}/calls")
-    @PreAuthorize("hasAuthority('" + Permissions.CHAT_WRITE + "')")
     public ChatCallDto start(@PathVariable Long convId, @Valid @RequestBody StartCallRequest body) {
         Long me = AuthenticatedUser.require().userId();
         ChatCall c = calls.start(convId, me, body);
@@ -77,7 +73,6 @@ public class ChatCallController {
     }
 
     @PostMapping("/calls/{id}/accept")
-    @PreAuthorize("hasAuthority('" + Permissions.CHAT_WRITE + "')")
     public ChatCallDto accept(@PathVariable Long id) {
         Long me = AuthenticatedUser.require().userId();
         ChatCall c = calls.accept(id, me);
@@ -88,7 +83,6 @@ public class ChatCallController {
     }
 
     @PostMapping("/calls/{id}/reject")
-    @PreAuthorize("hasAuthority('" + Permissions.CHAT_WRITE + "')")
     public ChatCallDto reject(@PathVariable Long id,
                               @RequestParam(required = false) String reason) {
         Long me = AuthenticatedUser.require().userId();
@@ -100,7 +94,6 @@ public class ChatCallController {
     }
 
     @PostMapping("/calls/{id}/end")
-    @PreAuthorize("hasAuthority('" + Permissions.CHAT_WRITE + "')")
     public ChatCallDto end(@PathVariable Long id) {
         Long me = AuthenticatedUser.require().userId();
         ChatCall c = calls.hangup(id, me);

@@ -387,9 +387,12 @@ GET    /api/v1/chats/calls                               my call history
 GET    /api/v1/chats/conversations/{id}/calls            per-conv call history
 ```
 
-All read endpoints require `chat:read`; all writes require `chat:write`.
-Membership is enforced at the service layer — non-members get `FORBIDDEN`
-even if they have the permission code.
+**Chat is open to every authenticated user** — no `chat:read` / `chat:write`
+permission gate. Membership of a specific conversation is still enforced
+at the service layer (non-members get `FORBIDDEN` on reads/writes scoped
+to a conv they're not in), and message edit/delete is still
+sender-restricted, but otherwise anyone with a valid access token can
+create conversations, send messages, react, and start calls.
 
 ### STOMP wire protocol
 

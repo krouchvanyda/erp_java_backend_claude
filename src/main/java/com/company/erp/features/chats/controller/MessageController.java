@@ -3,7 +3,6 @@ package com.company.erp.features.chats.controller;
 import com.company.erp.core.database.PageQuery;
 import com.company.erp.core.response.PageResponse;
 import com.company.erp.core.security.AuthenticatedUser;
-import com.company.erp.core.security.Permissions;
 import com.company.erp.features.chats.dto.*;
 import com.company.erp.features.chats.entity.Message;
 import com.company.erp.features.chats.entity.MessageReaction;
@@ -11,14 +10,12 @@ import com.company.erp.features.chats.service.ConversationService;
 import com.company.erp.features.chats.service.MessageService;
 import com.company.erp.features.chats.ws.ChatBroadcaster;
 import jakarta.validation.Valid;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/chats")
-@PreAuthorize("hasAuthority('" + Permissions.CHAT_READ + "')")
 public class MessageController {
 
     private final MessageService messages;
@@ -58,7 +55,6 @@ public class MessageController {
     }
 
     @PostMapping("/conversations/{convId}/messages")
-    @PreAuthorize("hasAuthority('" + Permissions.CHAT_WRITE + "')")
     public MessageDto send(@PathVariable Long convId, @Valid @RequestBody SendMessageRequest body) {
         Long me = AuthenticatedUser.require().userId();
         Message m = messages.send(convId, me, body);
@@ -69,7 +65,6 @@ public class MessageController {
     }
 
     @PatchMapping("/messages/{id}")
-    @PreAuthorize("hasAuthority('" + Permissions.CHAT_WRITE + "')")
     public MessageDto edit(@PathVariable Long id, @Valid @RequestBody EditMessageRequest body) {
         Long me = AuthenticatedUser.require().userId();
         Message m = messages.edit(id, me, body);
@@ -79,7 +74,6 @@ public class MessageController {
     }
 
     @DeleteMapping("/messages/{id}")
-    @PreAuthorize("hasAuthority('" + Permissions.CHAT_WRITE + "')")
     public MessageDto delete(@PathVariable Long id) {
         Long me = AuthenticatedUser.require().userId();
         Message m = messages.delete(id, me);
@@ -89,7 +83,6 @@ public class MessageController {
     }
 
     @PostMapping("/messages/{id}/reactions")
-    @PreAuthorize("hasAuthority('" + Permissions.CHAT_WRITE + "')")
     public List<ReactionDto> toggleReaction(@PathVariable Long id,
                                             @Valid @RequestBody ToggleReactionRequest body) {
         Long me = AuthenticatedUser.require().userId();
