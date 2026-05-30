@@ -97,6 +97,7 @@ Migrations:
 | V13     | `V13__chat_module.sql`                   | conversations, members, messages, reactions                          |
 | V14     | `V14__chat_calls.sql`                    | call sessions + participants (signalling only)                       |
 | V15     | `V15__chat_call_stream_cid.sql`          | adds `stream_call_cid` column so clients join the same Stream call   |
+| V16     | `V16__devices.sql`                       | per-user FCM device tokens for push (call invite / cancel)            |
 
 Flyway is configured with `out-of-order: true`, so V2 (and any other gap) can
 be slotted in later between V1 and V3 without breaking applied history.
@@ -533,6 +534,101 @@ The Flutter client subscribes to `/topic/conversations/{convId}` for the
 open chat, plus `/user/queue/inbox` for live inbox previews and
 `/user/queue/calls` for incoming-call sheets.
 
+### Device tokens + FCM push for incoming calls
+
+Without push, a backgrounded or killed app on user B can't show an
+incoming-call sheet — the STOMP `/user/queue/calls` frame only delivers
+while the WebSocket is alive. Three small pieces close the gap:
+
+**1. Device registration**
+
+```
+GET    /api/v1/me/devices                   list my devices
+POST   /api/v1/me/devices                   register / update this device's FCM token
+DELETE /api/v1/me/devices/{deviceId}        revoke this device
+```
+
+`POST /me/devices` body:
+
+```json
+{
+  "deviceId":  "stable-per-install-uuid",
+  "fcmToken":  "dKp9q...long-string",
+  "platform":  "android",
+  "appVersion": "1.2.3"
+}
+```
+
+Upserts on `(user_id, device_id)` so a token rotation overwrites in place.
+One user can have many devices (phone + tablet). Mobile calls `POST` (a)
+right after login and (b) on every `FirebaseMessaging.onTokenRefresh`,
+and `DELETE` on explicit logout.
+
+**2. `call.invite` push on `POST /chats/conversations/{convId}/calls`**
+
+After the `ChatCall` row is created and `streamCallCid` is provisioned,
+the backend queries `devices` for every participant **except the caller**
+and sends a **data-only** FCM message (no `notification` block — that
+would let the OS auto-show a banner and skip the Flutter background
+handler):
+
+```json
+{
+  "data": {
+    "type":           "call.invite",
+    "callId":         "42",
+    "conversationId": "8",
+    "callerId":       "5",
+    "callerName":     "Vibol Sok",
+    "callType":       "voice",
+    "startedAt":      "2026-05-30T08:12:34Z",
+    "streamCallCid":  "default:erp-call-42"
+  },
+  "android": { "priority": "HIGH" },
+  "apns":    { "headers": { "apns-priority": "10", "apns-push-type": "alert" } }
+}
+```
+
+Fire-and-forget — runs on a Spring `@Async` worker so a failed push never
+blocks the REST response.
+
+**3. `call.cancel` push on `POST /chats/calls/{id}/end` and friends**
+
+If A hangs up before B answers (or the call times out), the
+heads-up notification on B's screen needs to be dismissed. Pushed to:
+
+| Path | Cancel reason | Targets |
+|---|---|---|
+| `POST /calls/{id}/end` | `"hangup"` | every other participant still in `RINGING` / `ANSWERED` |
+| `POST /calls/{id}/reject` (if 1:1 ends) | `"rejected"` | as above |
+| `POST /calls/{id}/accept` | `"accepted_elsewhere"` | this user's *other* devices (so a second device stops ringing) |
+
+```json
+{
+  "data": {
+    "type":   "call.cancel",
+    "callId": "42",
+    "reason": "hangup"
+  },
+  "android": { "priority": "HIGH" }
+}
+```
+
+Mobile listens for `data.type == "call.cancel"` in its background handler
+and dismisses the matching local notification by stable id.
+
+**Configuration**
+
+```
+FCM_ENABLED=true
+FCM_SERVICE_ACCOUNT_JSON_PATH=/secrets/firebase-sa.json
+```
+
+If `FCM_ENABLED=false` (the default) the service stays off and every
+push is a no-op log line — the STOMP path still works for foregrounded
+apps. When you turn it on, `FcmService` reads the service-account JSON
+once at boot and initialises a shared `FirebaseApp`.
+
 ### Voice / video media (Stream Video)
 
 Signalling stays on our side (`ChatCall` + STOMP). Actual audio + video is
@@ -580,7 +676,7 @@ without Stream configured.
 |---|---|---|
 | WebRTC media | Out of scope — signalling only | A media SFU (LiveKit, Stream Video, Janus) |
 | Attachment binary upload | Messages carry `attachmentUrl` only | Mirror the employee-avatar pattern under `/api/v1/chats/uploads`, then put the URL in the `SendMessage` body |
-| FCM push for backgrounded calls | Disabled by default | `FCM_ENABLED=true` + service-account JSON, then a hook off `call.invite` |
+| FCM push for backgrounded calls | ✅ Built — set `FCM_ENABLED=true` + `FCM_SERVICE_ACCOUNT_JSON_PATH` to enable | See **Device tokens + FCM push for incoming calls** above |
 | 30-second ring timeout | Hook exists on `ChatCallService` but no scheduler is wired | Add a `@Scheduled` sweep that calls `markMissedIfStaleRinging(...)` for every RINGING call |
 | Typing indicators | Not in the guide | Easy follow-up — `/app/conversations/{id}/typing` STOMP send |
 

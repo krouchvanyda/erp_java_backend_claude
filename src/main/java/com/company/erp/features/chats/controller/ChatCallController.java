@@ -7,16 +7,25 @@ import com.company.erp.features.chats.dto.CallParticipantDto;
 import com.company.erp.features.chats.dto.ChatCallDto;
 import com.company.erp.features.chats.dto.StartCallRequest;
 import com.company.erp.features.chats.dto.StreamTokenDto;
+import com.company.erp.features.chats.entity.CallStatus;
 import com.company.erp.features.chats.entity.ChatCall;
+import com.company.erp.features.chats.entity.ChatCallParticipant;
+import com.company.erp.features.chats.entity.ParticipantStatus;
 import com.company.erp.features.chats.service.ChatCallService;
 import com.company.erp.features.chats.service.ConversationService;
 import com.company.erp.features.chats.service.StreamTokenService;
 import com.company.erp.features.chats.ws.ChatBroadcaster;
+import com.company.erp.features.devices.entity.Device;
+import com.company.erp.features.devices.service.DeviceService;
+import com.company.erp.features.devices.service.FcmService;
+import com.company.erp.features.users.entity.User;
+import com.company.erp.features.users.repository.UserRepository;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -30,15 +39,24 @@ public class ChatCallController {
     private final ConversationService conversations;
     private final ChatBroadcaster broadcaster;
     private final StreamTokenService streamTokens;
+    private final DeviceService deviceService;
+    private final FcmService fcm;
+    private final UserRepository users;
 
     public ChatCallController(ChatCallService calls,
                               ConversationService conversations,
                               ChatBroadcaster broadcaster,
-                              StreamTokenService streamTokens) {
+                              StreamTokenService streamTokens,
+                              DeviceService deviceService,
+                              FcmService fcm,
+                              UserRepository users) {
         this.calls = calls;
         this.conversations = conversations;
         this.broadcaster = broadcaster;
         this.streamTokens = streamTokens;
+        this.deviceService = deviceService;
+        this.fcm = fcm;
+        this.users = users;
     }
 
     /** My global call history across every conversation, newest-first. */
@@ -87,6 +105,7 @@ public class ChatCallController {
                     log.info("[call] INVITE fan-out callId={} → user={} (queue/calls)", c.getId(), p.getUserId());
                     broadcaster.toUser(p.getUserId(), "calls", "call.invite", dto);
                 });
+        pushInvite(c, me);
         return dto;
     }
 
@@ -101,6 +120,8 @@ public class ChatCallController {
                 id, c.getStatus(), c.getStreamCallCid());
         broadcaster.toCall(c.getConversationId(), "call.accept",
                 Map.of("callId", id, "accepterId", me, "call", dto));
+        // Cancel any leftover ring notification on this user's other devices.
+        pushCancelTo(List.of(me), id, "accepted_elsewhere");
         return dto;
     }
 
@@ -114,6 +135,8 @@ public class ChatCallController {
         ChatCallDto dto = toDto(c);
         broadcaster.toCall(c.getConversationId(), "call.reject",
                 Map.of("callId", id, "rejecterId", me, "reason", reason == null ? "" : reason, "call", dto));
+        // If the reject ended the whole call (1:1 case), cancel ring on others still pending.
+        pushCancelOnTerminal(c, me, "rejected");
         return dto;
     }
 
@@ -138,6 +161,7 @@ public class ChatCallController {
                 id, c.getStatus(), c.getDurationSeconds(), c.getEndReason());
         broadcaster.toCall(c.getConversationId(), "call.hangup",
                 Map.of("callId", id, "hangerUpperId", me, "call", dto));
+        pushCancelOnTerminal(c, me, "hangup");
         return dto;
     }
 
@@ -145,5 +169,63 @@ public class ChatCallController {
         List<CallParticipantDto> participants = c.getParticipants().stream()
                 .map(CallParticipantDto::from).toList();
         return ChatCallDto.from(c, participants);
+    }
+
+    // ---- FCM helpers -------------------------------------------------------
+
+    /** Data-only call.invite push to every participant except the caller. */
+    private void pushInvite(ChatCall c, Long callerId) {
+        List<Long> targetIds = c.getParticipants().stream()
+                .filter(p -> !p.getUserId().equals(callerId))
+                .map(ChatCallParticipant::getUserId)
+                .toList();
+        if (targetIds.isEmpty()) return;
+
+        String callerName = users.findById(callerId).map(User::getFullName).orElse("");
+        Map<String, String> data = new HashMap<>();
+        data.put("type",           "call.invite");
+        data.put("callId",         String.valueOf(c.getId()));
+        data.put("conversationId", String.valueOf(c.getConversationId()));
+        data.put("callerId",       String.valueOf(callerId));
+        data.put("callerName",     callerName);
+        data.put("callType",       c.getType().name().toLowerCase());
+        data.put("startedAt",      c.getStartedAt().toString());
+        data.put("streamCallCid",  c.getStreamCallCid() == null ? "" : c.getStreamCallCid());
+
+        List<String> tokens = tokensFor(targetIds);
+        log.info("[fcm] call.invite callId={} → users={} tokens={}", c.getId(), targetIds, tokens.size());
+        fcm.sendDataToTokens(tokens, data);
+    }
+
+    /** If the call has entered a terminal state, fan a cancel to anyone still RINGING. */
+    private void pushCancelOnTerminal(ChatCall c, Long actorId, String reason) {
+        if (c.getStatus() == CallStatus.RINGING || c.getStatus() == CallStatus.ANSWERED) {
+            return; // call still alive
+        }
+        List<Long> targetIds = c.getParticipants().stream()
+                .filter(p -> !p.getUserId().equals(actorId))
+                .filter(p -> p.getStatus() == ParticipantStatus.RINGING
+                          || p.getStatus() == ParticipantStatus.ANSWERED)
+                .map(ChatCallParticipant::getUserId)
+                .toList();
+        pushCancelTo(targetIds, c.getId(), reason);
+    }
+
+    private void pushCancelTo(List<Long> targetUserIds, Long callId, String reason) {
+        if (targetUserIds.isEmpty()) return;
+        Map<String, String> data = new HashMap<>();
+        data.put("type",   "call.cancel");
+        data.put("callId", String.valueOf(callId));
+        data.put("reason", reason);
+        List<String> tokens = tokensFor(targetUserIds);
+        log.info("[fcm] call.cancel callId={} reason={} → users={} tokens={}",
+                callId, reason, targetUserIds, tokens.size());
+        fcm.sendDataToTokens(tokens, data);
+    }
+
+    private List<String> tokensFor(List<Long> userIds) {
+        return deviceService.listForUsers(userIds).stream()
+                .map(Device::getFcmToken)
+                .toList();
     }
 }
