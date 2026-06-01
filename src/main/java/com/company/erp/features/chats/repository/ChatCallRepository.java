@@ -9,6 +9,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 public interface ChatCallRepository extends JpaRepository<ChatCall, Long> {
@@ -27,6 +29,12 @@ public interface ChatCallRepository extends JpaRepository<ChatCall, Long> {
 
     @EntityGraph(attributePaths = {"participants"})
     Page<ChatCall> findByConversationIdOrderByStartedAtDesc(Long conversationId, Pageable pageable);
+
+    /** Calls still RINGING that were started before the cutoff — auto-cancel candidates. */
+    @EntityGraph(attributePaths = {"participants"})
+    @Query("SELECT c FROM ChatCall c WHERE c.status = com.company.erp.features.chats.entity.CallStatus.RINGING " +
+           "AND c.startedAt < :cutoff")
+    List<ChatCall> findStaleRinging(@Param("cutoff") Instant cutoff);
 
     /** Used by the busy-signal check: is this user mid-call right now? */
     @Query("""

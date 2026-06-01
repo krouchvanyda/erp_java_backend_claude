@@ -1,5 +1,6 @@
 package com.company.erp.features.chats.service;
 
+import com.company.erp.core.config.AppProperties;
 import com.company.erp.core.database.PageQuery;
 import com.company.erp.core.exceptions.BadRequestException;
 import com.company.erp.core.exceptions.NotFoundException;
@@ -8,6 +9,8 @@ import com.company.erp.features.chats.entity.*;
 import com.company.erp.features.chats.presence.PresenceService;
 import com.company.erp.features.chats.repository.ChatCallParticipantRepository;
 import com.company.erp.features.chats.repository.ChatCallRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -15,11 +18,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 @Service
 @Transactional
 public class ChatCallService {
+
+    private static final Logger log = LoggerFactory.getLogger(ChatCallService.class);
 
     private static final Set<CallStatus> OPEN_CALL_STATUSES =
             Set.of(CallStatus.RINGING, CallStatus.ANSWERED);
@@ -31,17 +38,34 @@ public class ChatCallService {
     private final ConversationService conversations;
     private final PresenceService presence;
     private final StreamTokenService streamTokens;
+    private final AppProperties props;
 
     public ChatCallService(ChatCallRepository calls,
                            ChatCallParticipantRepository participants,
                            ConversationService conversations,
                            PresenceService presence,
-                           StreamTokenService streamTokens) {
+                           StreamTokenService streamTokens,
+                           AppProperties props) {
         this.calls = calls;
         this.participants = participants;
         this.conversations = conversations;
         this.presence = presence;
         this.streamTokens = streamTokens;
+        this.props = props;
+    }
+
+    private long ringTimeoutSeconds() {
+        return (props.chat() == null || props.chat().call() == null
+                || props.chat().call().ringTimeoutSeconds() <= 0)
+                ? 60L
+                : props.chat().call().ringTimeoutSeconds();
+    }
+
+    private long acceptGraceSeconds() {
+        return (props.chat() == null || props.chat().call() == null
+                || props.chat().call().acceptGraceSeconds() < 0)
+                ? 5L
+                : props.chat().call().acceptGraceSeconds();
     }
 
     @Transactional(readOnly = true)
@@ -102,9 +126,33 @@ public class ChatCallService {
 
     public ChatCall accept(Long callId, Long userId) {
         ChatCall c = getById(callId);
-        if (c.getStatus() != CallStatus.RINGING && c.getStatus() != CallStatus.ANSWERED) {
+
+        // Grace-window revival — if the sweeper just marked it MISSED but the
+        // accept arrives within `acceptGraceSeconds`, restore RINGING and proceed
+        // so a late-by-a-few-seconds FCM accept doesn't get rejected.
+        if (c.getStatus() == CallStatus.MISSED) {
+            long ageSec = Duration.between(c.getStartedAt(), Instant.now()).getSeconds();
+            long graceCutoff = ringTimeoutSeconds() + acceptGraceSeconds();
+            if (ageSec <= graceCutoff) {
+                log.info("[call] REVIVE callId={} accepter user={} ageSec={} graceCutoff={}",
+                        callId, userId, ageSec, graceCutoff);
+                c.setStatus(CallStatus.RINGING);
+                c.setEndedAt(null);
+                c.setEndReason(null);
+                c.setDurationSeconds(null);
+                ChatCallParticipant me = participants.findByCall_IdAndId_UserId(callId, userId)
+                        .orElseThrow(() -> new NotFoundException("You are not a participant in this call"));
+                if (me.getStatus() == ParticipantStatus.MISSED) {
+                    me.setStatus(ParticipantStatus.RINGING);
+                    me.setLeftAt(null);
+                }
+            } else {
+                throw new BadRequestException("Call already ended");
+            }
+        } else if (c.getStatus() != CallStatus.RINGING && c.getStatus() != CallStatus.ANSWERED) {
             throw new BadRequestException("Call already ended");
         }
+
         ChatCallParticipant p = participants.findByCall_IdAndId_UserId(callId, userId)
                 .orElseThrow(() -> new NotFoundException("You are not a participant in this call"));
         if (p.getStatus() != ParticipantStatus.RINGING) {
@@ -170,10 +218,17 @@ public class ChatCallService {
         return c;
     }
 
-    public ChatCall markMissedIfStaleRinging(Long callId) {
-        ChatCall c = getById(callId);
-        if (c.getStatus() == CallStatus.RINGING
-                && Duration.between(c.getStartedAt(), Instant.now()).getSeconds() >= 30) {
+    /**
+     * Sweep every RINGING call older than the configured ring timeout and
+     * transition it to MISSED. Called by {@code CallTimeoutScheduler}. Returns
+     * the freshly-ended calls so the scheduler can fan out STOMP + FCM
+     * notifications to the caller and unanswered callees.
+     */
+    public List<ChatCall> sweepStaleRinging() {
+        Instant cutoff = Instant.now().minus(Duration.ofSeconds(ringTimeoutSeconds()));
+        List<ChatCall> stale = calls.findStaleRinging(cutoff);
+        List<ChatCall> ended = new ArrayList<>();
+        for (ChatCall c : stale) {
             for (ChatCallParticipant p : c.getParticipants()) {
                 if (p.getStatus() == ParticipantStatus.RINGING) {
                     p.setStatus(ParticipantStatus.MISSED);
@@ -181,8 +236,13 @@ public class ChatCallService {
                 }
             }
             endCallInternal(c, CallStatus.MISSED, "no_answer");
+            ended.add(c);
+            log.info("[call] AUTO-MISSED callId={} after {}s (timeout={}s)",
+                    c.getId(),
+                    Duration.between(c.getStartedAt(), Instant.now()).getSeconds(),
+                    ringTimeoutSeconds());
         }
-        return c;
+        return ended;
     }
 
     private void endCallInternal(ChatCall c, CallStatus status, String reason) {

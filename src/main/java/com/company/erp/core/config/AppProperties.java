@@ -11,7 +11,8 @@ public record AppProperties(
         RateLimit rateLimit,
         Stream stream,
         Fcm fcm,
-        Uploads uploads
+        Uploads uploads,
+        Chat chat
 ) {
 
     public record Uploads(Avatar avatar) {
@@ -20,6 +21,15 @@ public record AppProperties(
                 String publicBaseUrl,
                 long maxFileSize,
                 String allowedContentTypes
+        ) {}
+    }
+
+    public record Chat(Call call) {
+        public record Call(
+                /** How long a RINGING call survives before the sweeper auto-ends it. */
+                long ringTimeoutSeconds,
+                /** Late-accept tolerance — accepts arriving within this window after auto-cancel revive the call. */
+                long acceptGraceSeconds
         ) {}
     }
 

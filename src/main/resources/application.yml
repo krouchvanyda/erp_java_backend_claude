@@ -85,6 +85,17 @@ app:
   fcm:
     enabled: ${FCM_ENABLED:false}
     service-account-json-path: ${FCM_SERVICE_ACCOUNT_JSON_PATH:}
+  chat:
+    call:
+      # Must match Stream's autoCancelTimeout on the client (60s). Lower values
+      # produce desync (Stream still ringing, backend marked MISSED already);
+      # higher values let Stream drop the call first → same desync from the
+      # other side. Don't push past ~90s.
+      ring-timeout-seconds: ${CHAT_CALL_RING_TIMEOUT_SECONDS:60}
+      # Tolerance for accept POSTs that arrive just past the deadline (real-world
+      # FCM + user reaction lag). Accepts within this many seconds of auto-cancel
+      # revive the call instead of returning 400.
+      accept-grace-seconds: ${CHAT_CALL_ACCEPT_GRACE_SECONDS:5}
   uploads:
     avatar:
       dir: ${UPLOAD_AVATAR_DIR:./uploads/avatars}

@@ -629,6 +629,60 @@ push is a no-op log line — the STOMP path still works for foregrounded
 apps. When you turn it on, `FcmService` reads the service-account JSON
 once at boot and initialises a shared `FirebaseApp`.
 
+### Ring timeout + auto-end (`call.hangup` on no answer)
+
+Calls in `RINGING` state are auto-ended by `CallTimeoutScheduler` after
+`app.chat.call.ring-timeout-seconds` (default **60 s**, must match Stream's
+client-side `autoCancelTimeout`). The sweeper runs every 5 s.
+
+When the sweeper fires for a stale call it:
+
+1. Sets every still-RINGING participant to `MISSED`.
+2. Sets the call to `status = MISSED`, `endReason = "no_answer"`, `endedAt = now()`.
+3. Broadcasts `call.hangup` over STOMP to `/topic/conversations/{convId}/call`
+   so the caller's "Calling…" page closes and any other connected callee
+   stops ringing:
+
+   ```json
+   { "event": "call.hangup",
+     "payload": { "callId": 42, "hangerUpperId": <callerId>,
+                  "reason": "no_answer", "call": {…} } }
+   ```
+
+4. Fires a `call.cancel` FCM data push to every participant's registered
+   device so backgrounded ringers dismiss:
+
+   ```json
+   { "data": { "type": "call.cancel", "callId": "42", "reason": "timeout" } }
+   ```
+
+### Accept grace window
+
+If `POST /chats/calls/{id}/accept` arrives just past the deadline (real-world
+FCM + user-tap lag), the backend **revives** the call instead of returning
+400:
+
+- Window: up to `app.chat.call.accept-grace-seconds` (default **5 s**) past
+  the auto-cancel cutoff.
+- Effect: `MISSED → RINGING` for the call, accepter's participant goes
+  `MISSED → RINGING → ANSWERED`, normal flow proceeds, `call.accept` is
+  broadcast to everyone.
+- Past the grace cutoff: returns 400 `"Call already ended"` as before.
+
+Tunables (all overridable via env vars):
+
+```yaml
+app:
+  chat:
+    call:
+      ring-timeout-seconds: ${CHAT_CALL_RING_TIMEOUT_SECONDS:60}
+      accept-grace-seconds: ${CHAT_CALL_ACCEPT_GRACE_SECONDS:5}
+      sweep-interval-ms:    ${CHAT_CALL_SWEEP_INTERVAL_MS:5000}
+```
+
+Don't push the ring timeout past ~90 s — Stream's coordinator may release
+the call first and you'll get desync from the other side.
+
 ### Voice / video media (Stream Video)
 
 Signalling stays on our side (`ChatCall` + STOMP). Actual audio + video is
@@ -677,7 +731,7 @@ without Stream configured.
 | WebRTC media | Out of scope — signalling only | A media SFU (LiveKit, Stream Video, Janus) |
 | Attachment binary upload | Messages carry `attachmentUrl` only | Mirror the employee-avatar pattern under `/api/v1/chats/uploads`, then put the URL in the `SendMessage` body |
 | FCM push for backgrounded calls | ✅ Built — set `FCM_ENABLED=true` + `FCM_SERVICE_ACCOUNT_JSON_PATH` to enable | See **Device tokens + FCM push for incoming calls** above |
-| 30-second ring timeout | Hook exists on `ChatCallService` but no scheduler is wired | Add a `@Scheduled` sweep that calls `markMissedIfStaleRinging(...)` for every RINGING call |
+| 60-second ring timeout (configurable) | ✅ Built — `CallTimeoutScheduler` sweeps every 5 s, fans `call.hangup` over STOMP + `call.cancel` over FCM, includes a 5 s accept-grace window | See **Ring timeout + auto-end** above |
 | Typing indicators | Not in the guide | Easy follow-up — `/app/conversations/{id}/typing` STOMP send |
 
 ### Tables
