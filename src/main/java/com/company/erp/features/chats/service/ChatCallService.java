@@ -38,6 +38,7 @@ public class ChatCallService {
     private final ConversationService conversations;
     private final PresenceService presence;
     private final StreamTokenService streamTokens;
+    private final StreamVideoService streamVideo;
     private final AppProperties props;
 
     public ChatCallService(ChatCallRepository calls,
@@ -45,12 +46,14 @@ public class ChatCallService {
                            ConversationService conversations,
                            PresenceService presence,
                            StreamTokenService streamTokens,
+                           StreamVideoService streamVideo,
                            AppProperties props) {
         this.calls = calls;
         this.participants = participants;
         this.conversations = conversations;
         this.presence = presence;
         this.streamTokens = streamTokens;
+        this.streamVideo = streamVideo;
         this.props = props;
     }
 
@@ -104,7 +107,8 @@ public class ChatCallService {
         // participant joins the same Stream call.
         c.setStreamCallCid(streamTokens.cidForCall(c.getId()));
 
-        for (Long uid : conversations.memberUserIds(convId)) {
+        Set<Long> memberIds = conversations.memberUserIds(convId);
+        for (Long uid : memberIds) {
             ChatCallParticipant p = new ChatCallParticipant();
             p.setId(new ChatCallParticipantId(c.getId(), uid));
             p.setCall(c);
@@ -118,6 +122,11 @@ public class ChatCallService {
         }
         // Caller is busy from the moment the call starts.
         presence.markBusy(callerId);
+        // Ring the callees server-side: get-or-create the Stream call with
+        // ring:true + members so Stream emits the VoIP push (CallKit/native
+        // incoming-call screen) even when the callee app is killed. Async +
+        // exception-swallowing, so a Stream hiccup never breaks call signalling.
+        streamVideo.ring(c.getStreamCallCid(), callerId, memberIds);
         // Reload via the EntityGraph so the caller can read c.getParticipants()
         // after the @Transactional boundary closes.
         return calls.findWithParticipantsById(c.getId())
