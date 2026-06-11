@@ -3,6 +3,7 @@ package com.company.erp.features.chats.presence;
 import com.company.erp.core.security.AuthenticatedUser;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -32,5 +33,24 @@ public class PresenceController {
         AuthenticatedUser.require();
         if (ids == null || ids.isEmpty()) return presence.snapshot();
         return presence.dtosFor(ids);
+    }
+
+    /**
+     * App-lifecycle beacon: the caller minimized → mark them OFFLINE now so an
+     * incoming call rings their device via VoIP/CallKit instead of being
+     * skipped as "online". Fixes the "minimized, second call: no ring" bug
+     * where the STOMP heartbeat took ~20-30s to notice the suspended socket.
+     */
+    @PostMapping("/background")
+    public void background() {
+        Long me = AuthenticatedUser.require().userId();
+        presence.markBackgrounded(me);
+    }
+
+    /** App-lifecycle beacon: the caller returned to the foreground. */
+    @PostMapping("/foreground")
+    public void foreground() {
+        Long me = AuthenticatedUser.require().userId();
+        presence.clearBackgrounded(me);
     }
 }

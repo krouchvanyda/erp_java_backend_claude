@@ -31,6 +31,16 @@ public class PresenceService {
     private final Map<Long, Instant> lastSeenAt = new ConcurrentHashMap<>();
     /** userId → true if they're currently in an active call. */
     private final Set<Long> busy = ConcurrentHashMap.newKeySet();
+    /**
+     * userId → true if the app sent an explicit "I minimized" beacon
+     * ({@code POST /chats/presence/background}). Flips the user OFFLINE
+     * instantly for call-routing instead of waiting ~20-30s for the STOMP
+     * heartbeat to notice the OS-suspended socket. This is what lets a
+     * just-minimized callee receive the VoIP/CallKit ring (the ring gate in
+     * {@code ChatCallService.start} keys off OFFLINE). Cleared on the
+     * foreground beacon or on the next STOMP CONNECT (reconnect ⇒ foreground).
+     */
+    private final Set<Long> backgrounded = ConcurrentHashMap.newKeySet();
 
     private final ChatBroadcaster broadcaster;
     private final SimpMessagingTemplate template;
@@ -43,6 +53,9 @@ public class PresenceService {
     public void connect(Long userId, String sessionId) {
         if (userId == null || sessionId == null) return;
         PresenceStatus before = statusOf(userId);
+        // A fresh STOMP CONNECT means the app is foreground again — clear any
+        // stale "backgrounded" override so we don't report OFFLINE while live.
+        backgrounded.remove(userId);
         sessionsByUser.computeIfAbsent(userId, k -> ConcurrentHashMap.newKeySet()).add(sessionId);
         userBySession.put(sessionId, userId);
         PresenceStatus after = statusOf(userId);
@@ -78,9 +91,42 @@ public class PresenceService {
     }
 
     public PresenceStatus statusOf(Long userId) {
-        boolean online = sessionsByUser.containsKey(userId);
-        if (!online) return PresenceStatus.OFFLINE;
-        return busy.contains(userId) ? PresenceStatus.BUSY : PresenceStatus.ONLINE;
+        // BUSY wins (in an active call). Otherwise an explicit background
+        // beacon forces OFFLINE immediately — without it, a minimized iOS
+        // app's suspended socket keeps the session "ONLINE" for ~20-30s, so
+        // a call placed in that window is wrongly treated as foreground and
+        // the VoIP/CallKit ring is skipped (the "minimized: no ring" bug).
+        if (busy.contains(userId)) return PresenceStatus.BUSY;
+        if (backgrounded.contains(userId)) return PresenceStatus.OFFLINE;
+        return sessionsByUser.containsKey(userId)
+                ? PresenceStatus.ONLINE
+                : PresenceStatus.OFFLINE;
+    }
+
+    /**
+     * App-lifecycle beacon: the user minimized. Flip them OFFLINE now for
+     * call-routing instead of waiting for the STOMP heartbeat to time out the
+     * OS-suspended socket. Idempotent.
+     */
+    public void markBackgrounded(Long userId) {
+        if (userId == null) return;
+        PresenceStatus before = statusOf(userId);
+        backgrounded.add(userId);
+        PresenceStatus after = statusOf(userId);
+        if (before != after) {
+            lastSeenAt.put(userId, Instant.now());
+            emit(userId, after);
+        }
+    }
+
+    /** App-lifecycle beacon: the user returned to the foreground. */
+    public void clearBackgrounded(Long userId) {
+        if (userId == null) return;
+        PresenceStatus before = statusOf(userId);
+        if (backgrounded.remove(userId)) {
+            PresenceStatus after = statusOf(userId);
+            if (before != after) emit(userId, after);
+        }
     }
 
     public PresenceDto dtoOf(Long userId) {

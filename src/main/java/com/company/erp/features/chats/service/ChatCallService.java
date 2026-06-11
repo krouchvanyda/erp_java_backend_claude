@@ -7,6 +7,7 @@ import com.company.erp.core.exceptions.NotFoundException;
 import com.company.erp.features.chats.dto.StartCallRequest;
 import com.company.erp.features.chats.entity.*;
 import com.company.erp.features.chats.presence.PresenceService;
+import com.company.erp.features.chats.presence.PresenceStatus;
 import com.company.erp.features.chats.repository.ChatCallParticipantRepository;
 import com.company.erp.features.chats.repository.ChatCallRepository;
 import org.slf4j.Logger;
@@ -19,8 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -122,11 +125,39 @@ public class ChatCallService {
         }
         // Caller is busy from the moment the call starts.
         presence.markBusy(callerId);
-        // Ring the callees server-side: get-or-create the Stream call with
-        // ring:true + members so Stream emits the VoIP push (CallKit/native
-        // incoming-call screen) even when the callee app is killed. Async +
-        // exception-swallowing, so a Stream hiccup never breaks call signalling.
-        streamVideo.ring(c.getStreamCallCid(), callerId, memberIds);
+        // Ring the callees server-side via Stream's VoIP push (the native
+        // CallKit / ConnectionService incoming-call screen) — but ONLY for
+        // callees who are OFFLINE: no live STOMP session, which on iOS means
+        // the app is backgrounded or killed (the Flutter client drops its
+        // WebSocket via `disconnectForBackground` the moment it backgrounds).
+        //
+        // An ONLINE callee is foreground with the WebSocket up, so it already
+        // received the STOMP `call.invite` (broadcast in ChatCallController)
+        // and shows the IN-APP incoming-call overlay. Sending that foreground
+        // device a VoIP push too is exactly what produced the duplicate native
+        // ring header AND the contested audio session (CallKit + WebRTC both
+        // grabbing AVAudioSession → mute/unmute yields silence). Gating the
+        // ring at the source removes the foreground CallKit ring entirely —
+        // no flash — and leaves the foreground audio session to WebRTC alone.
+        // OFFLINE callees still get the VoIP push (their only way to ring).
+        // Async + exception-swallowing, so a Stream hiccup never breaks
+        // call signalling.
+        Set<Long> ringTargets = memberIds.stream()
+                .filter(uid -> !uid.equals(callerId))
+                .filter(uid -> presence.statusOf(uid) == PresenceStatus.OFFLINE)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (ringTargets.isEmpty()) {
+            log.info("[call] callId={} — all callees ONLINE; skipping Stream VoIP ring "
+                    + "(in-app overlay handles foreground, no CallKit)", c.getId());
+        } else {
+            // Include the caller so Stream makes them the creator (creators are
+            // NOT rung); only the OFFLINE callees in this set receive the push.
+            Set<Long> ringMembers = new LinkedHashSet<>(ringTargets);
+            ringMembers.add(callerId);
+            log.info("[call] callId={} — ringing OFFLINE callees via VoIP push: {}",
+                    c.getId(), ringTargets);
+            streamVideo.ring(c.getStreamCallCid(), callerId, ringMembers);
+        }
         // Reload via the EntityGraph so the caller can read c.getParticipants()
         // after the @Transactional boundary closes.
         return calls.findWithParticipantsById(c.getId())
