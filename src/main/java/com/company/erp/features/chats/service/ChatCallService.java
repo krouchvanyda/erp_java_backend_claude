@@ -303,6 +303,17 @@ public class ChatCallService {
         }
         // Caller, even if they never "answered", was busy from start.
         presence.clearBusy(c.getCallerId());
+
+        // Cancel the Stream ring for every member. This is the single
+        // chokepoint for EVERY terminal end (caller_left, all_callees_left,
+        // rejected, no_answer/timeout), so a still-ringing callee that got the
+        // ring via Stream's VoIP push — minimized / killed iOS, native CallKit —
+        // is told the call is over through the SAME channel that raised it.
+        // Without this, a backgrounded callee never learns the call ended
+        // (its STOMP + Stream WS are both down) and the CallKit screen lingers
+        // until Stream's ~ring-timeout. Async + swallowing; a no-op/404 when
+        // the call was never created on Stream (all callees online).
+        streamVideo.endCall(c.getStreamCallCid(), c.getCallerId());
     }
 
 }

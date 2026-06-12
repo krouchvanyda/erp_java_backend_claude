@@ -121,7 +121,7 @@ public class ChatCallController {
         broadcaster.toCall(c.getConversationId(), "call.accept",
                 Map.of("callId", id, "accepterId", me, "call", dto));
         // Cancel any leftover ring notification on this user's other devices.
-        pushCancelTo(List.of(me), id, "accepted_elsewhere");
+        pushCancelTo(List.of(me), id, c.getStreamCallCid(), "accepted_elsewhere");
         return dto;
     }
 
@@ -208,18 +208,21 @@ public class ChatCallController {
                           || p.getStatus() == ParticipantStatus.ANSWERED)
                 .map(ChatCallParticipant::getUserId)
                 .toList();
-        pushCancelTo(targetIds, c.getId(), reason);
+        pushCancelTo(targetIds, c.getId(), c.getStreamCallCid(), reason);
     }
 
-    private void pushCancelTo(List<Long> targetUserIds, Long callId, String reason) {
+    private void pushCancelTo(List<Long> targetUserIds, Long callId, String streamCallCid, String reason) {
         if (targetUserIds.isEmpty()) return;
         Map<String, String> data = new HashMap<>();
         data.put("type",   "call.cancel");
         data.put("callId", String.valueOf(callId));
+        // streamCallCid lets the iOS client map the cancel to the exact CallKit
+        // entry (callkitIdForCid) instead of relying on endAllCalls.
+        data.put("streamCallCid", streamCallCid == null ? "" : streamCallCid);
         data.put("reason", reason);
         List<String> tokens = tokensFor(targetUserIds);
-        log.info("[fcm] call.cancel callId={} reason={} → users={} tokens={}",
-                callId, reason, targetUserIds, tokens.size());
+        log.info("[fcm] call.cancel callId={} cid={} reason={} → users={} tokens={}",
+                callId, streamCallCid, reason, targetUserIds, tokens.size());
         fcm.sendDataToTokens(tokens, data);
     }
 
