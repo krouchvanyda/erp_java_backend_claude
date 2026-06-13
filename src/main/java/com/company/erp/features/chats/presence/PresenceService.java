@@ -53,9 +53,17 @@ public class PresenceService {
     public void connect(Long userId, String sessionId) {
         if (userId == null || sessionId == null) return;
         PresenceStatus before = statusOf(userId);
-        // A fresh STOMP CONNECT means the app is foreground again — clear any
-        // stale "backgrounded" override so we don't report OFFLINE while live.
-        backgrounded.remove(userId);
+        // NOTE: do NOT clear the `backgrounded` override here. A STOMP CONNECT
+        // is NOT proof of foreground: a KILLED iOS app woken by a call VoIP
+        // push cold-starts and connects STOMP while still in the background
+        // (no UI on screen). If we cleared `backgrounded` on every connect, that
+        // cold-start would mark the user ONLINE, so a FOLLOW-UP call would skip
+        // the apn/VoIP ring (the "2nd call: no ring after a killed-app reject"
+        // bug). Only an EXPLICIT foreground beacon (`/presence/foreground` →
+        // clearBackgrounded), which the client sends on a genuine
+        // AppLifecycleState.resumed, means the app is really on screen — that is
+        // what clears the override. A background STOMP reconnect now correctly
+        // keeps the user OFFLINE so the next call still rings via apn.
         sessionsByUser.computeIfAbsent(userId, k -> ConcurrentHashMap.newKeySet()).add(sessionId);
         userBySession.put(sessionId, userId);
         PresenceStatus after = statusOf(userId);
