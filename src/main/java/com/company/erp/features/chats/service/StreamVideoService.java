@@ -54,9 +54,14 @@ public class StreamVideoService {
      * @param streamCallCid the {@code type:id} CID returned to the app, e.g. {@code default:erp-call-1220}
      * @param callerId      the caller's user id (becomes the Stream creator; not rung)
      * @param memberUserIds every conversation participant — caller + all callees
+     * @param isVideo       true for a video call — sent as the top-level
+     *                      {@code video} flag so Stream's VoIP ring push carries
+     *                      {@code video:"true"} and the iOS CallKit header reads
+     *                      "Video" instead of "Audio"
      */
     @Async
-    public void ring(String streamCallCid, Long callerId, Collection<Long> memberUserIds) {
+    public void ring(String streamCallCid, Long callerId, Collection<Long> memberUserIds,
+                     boolean isVideo) {
         if (!tokens.isEnabled()) {
             log.warn("[stream] skip ring — Stream not configured (cid={})", streamCallCid);
             return;
@@ -77,10 +82,23 @@ public class StreamVideoService {
                 .toList();
         // ring is top-level; members live under data. Caller token => caller is
         // the creator, so created_by_id is implicit and must NOT be sent.
-        Map<String, Object> body = Map.of(
-                "ring", true,
-                "data", Map.of("members", members)
-        );
+        //
+        // For a VIDEO call we add the documented TOP-LEVEL `video` flag (a
+        // sibling of `ring`/`notify` on GetOrCreateCallRequest — the Stream SDK
+        // sends it) so the VoIP ring push carries `video:"true"`, which the iOS
+        // native handler turns into the CallKit "Video" header.
+        //
+        // A VOICE call keeps the EXACT original body (`{ring:true,
+        // data:{members}}`) — no extra field — so voice ringing is byte-for-byte
+        // identical to the long-working behaviour and CANNOT be affected by this
+        // change. (Do NOT use `data.settings_override.video`: Stream rejects that
+        // shape and, because this POST swallows errors, a rejected body silently
+        // kills the whole ring → no incoming call on minimized/killed devices.)
+        Map<String, Object> body = isVideo
+                ? Map.of("ring", true, "video", true,
+                        "data", Map.of("members", members))
+                : Map.of("ring", true,
+                        "data", Map.of("members", members));
 
         String token = tokens.issueFor(callerId).token();
         String apiKey = props.stream().apiKey();
@@ -96,8 +114,8 @@ public class StreamVideoService {
                     .body(body)
                     .retrieve()
                     .toBodilessEntity();
-            log.info("[stream] rang call cid={} caller={} members={}",
-                    streamCallCid, callerId, members.size());
+            log.info("[stream] rang call cid={} caller={} members={} video={}",
+                    streamCallCid, callerId, members.size(), isVideo);
         } catch (RestClientResponseException ex) {
             log.warn("[stream] ring failed cid={} status={} body={}",
                     streamCallCid, ex.getStatusCode(), ex.getResponseBodyAsString());

@@ -109,6 +109,12 @@ public class ChatCallService {
         // Now that the row has an id, stamp the Stream Video CID so every
         // participant joins the same Stream call.
         c.setStreamCallCid(streamTokens.cidForCall(c.getId()));
+        // Diagnostic: log the call type up front so it's clear from the logs
+        // whether a started call is VIDEO or VOICE (drives the Stream ring's
+        // `video` flag → iOS CallKit "Video"/"Audio" header).
+        log.info("[call] start callId={} conv={} caller={} type={} isVideo={}",
+                c.getId(), convId, callerId, c.getType(),
+                c.getType() == CallType.VIDEO);
 
         Set<Long> memberIds = conversations.memberUserIds(convId);
         for (Long uid : memberIds) {
@@ -156,7 +162,8 @@ public class ChatCallService {
             ringMembers.add(callerId);
             log.info("[call] callId={} — ringing OFFLINE callees via VoIP push: {}",
                     c.getId(), ringTargets);
-            streamVideo.ring(c.getStreamCallCid(), callerId, ringMembers);
+            streamVideo.ring(c.getStreamCallCid(), callerId, ringMembers,
+                    c.getType() == CallType.VIDEO);
         }
         // Reload via the EntityGraph so the caller can read c.getParticipants()
         // after the @Transactional boundary closes.
