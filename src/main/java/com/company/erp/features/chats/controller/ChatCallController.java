@@ -187,13 +187,20 @@ public class ChatCallController {
                 .toList();
         if (targetIds.isEmpty()) return;
 
-        String callerName = users.findById(callerId).map(User::getFullName).orElse("");
+        User caller = users.findById(callerId).orElse(null);
+        String callerName = caller == null ? "" : caller.getFullName();
+        // Caller's photo so the Android killed/locked-screen ring can paint it
+        // directly from the push (no extra GET /chats/calls/{id} round trip).
+        String callerAvatarUrl = caller == null ? null : caller.getAvatarUrl();
         Map<String, String> data = new HashMap<>();
         data.put("type",           "call.invite");
         data.put("callId",         String.valueOf(c.getId()));
         data.put("conversationId", String.valueOf(c.getConversationId()));
         data.put("callerId",       String.valueOf(callerId));
         data.put("callerName",     callerName);
+        if (callerAvatarUrl != null && !callerAvatarUrl.isBlank()) {
+            data.put("callerAvatarUrl", callerAvatarUrl);
+        }
         data.put("callType",       c.getType().name().toLowerCase());
         data.put("startedAt",      c.getStartedAt().toString());
         data.put("streamCallCid",  c.getStreamCallCid() == null ? "" : c.getStreamCallCid());

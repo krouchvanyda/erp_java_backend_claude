@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.List;
 
@@ -97,6 +98,18 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleNoHandler(NoHandlerFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
                 ApiResponse.error("Endpoint not found", ErrorCodes.NOT_FOUND)
+        );
+    }
+
+    /**
+     * Missing static resource (e.g. an avatar file referenced in the DB but
+     * not present on this instance's disk). A clean 404 — NOT the noisy
+     * 500-with-stack-trace the generic fallback would log for every request.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResource(NoResourceFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                ApiResponse.error("Resource not found", ErrorCodes.NOT_FOUND)
         );
     }
 
