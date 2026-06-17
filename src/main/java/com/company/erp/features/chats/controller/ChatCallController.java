@@ -168,7 +168,13 @@ public class ChatCallController {
     private ChatCallDto toDto(ChatCall c) {
         List<CallParticipantDto> participants = c.getParticipants().stream()
                 .map(CallParticipantDto::from).toList();
-        return ChatCallDto.from(c, participants);
+        // Resolve the caller's avatar so a killed/minimized Android callee can
+        // render it on the native CallKit ring (fetched via GET /chats/calls/{id}).
+        String callerAvatarUrl = c.getCallerId() == null ? null
+                : users.findById(c.getCallerId())
+                        .map(u -> u.getAvatarUrl())
+                        .orElse(null);
+        return ChatCallDto.from(c, participants, callerAvatarUrl);
     }
 
     // ---- FCM helpers -------------------------------------------------------

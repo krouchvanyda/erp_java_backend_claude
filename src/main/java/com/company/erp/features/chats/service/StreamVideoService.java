@@ -100,23 +100,31 @@ public class StreamVideoService {
         // → no incoming call. After deploy, confirm `[stream] rang …` and NOT
         // `[stream] ring failed … status=4xx`. (Do NOT use `settings_override.video`
         // — that partial shape is what Stream rejected before and killed ringing.)
-        Map<String, Object> body;
-        if (isVideo) {
-            Map<String, Object> ringSettings = Map.of(
-                    "auto_cancel_timeout_ms", 60000,
-                    "incoming_call_timeout_ms", 60000,
-                    "missed_call_timeout_ms", 60000
-            );
-            body = Map.of(
-                    "ring", true,
-                    "video", true,
-                    "data", Map.of(
-                            "members", members,
-                            "settings_override", Map.of("ring", ringSettings))
-            );
-        } else {
-            body = Map.of("ring", true, "data", Map.of("members", members));
-        }
+        // Ring timeout override applied to BOTH voice and video so Stream's
+        // callee ring lasts the same 60s as the backend's own ring sweep
+        // (CallTimeoutScheduler). Previously voice sent no override, so Stream
+        // used its short dashboard default (~18s) and fired `call.missed` /
+        // dismissed the callee ring long before the backend ended the call —
+        // leaving the CALLER stuck on "Calling…" until the 60s sweep. The
+        // `settings_override.ring` (RingSettingsRequest) is the validated shape
+        // (same one video already used); only the top-level `video:true` is
+        // video-specific (drives the CallKit "Video" header) and must NOT be
+        // sent for voice.
+        // Derive from the SAME config the backend ring sweep uses
+        // (CallTimeoutScheduler → ChatCallService.ringTimeoutSeconds) so the
+        // Stream callee ring and the backend timeout can never drift apart.
+        long ringMs = Math.max(5, props.chat().call().ringTimeoutSeconds()) * 1000L;
+        Map<String, Object> ringSettings = Map.of(
+                "auto_cancel_timeout_ms", ringMs,
+                "incoming_call_timeout_ms", ringMs,
+                "missed_call_timeout_ms", ringMs
+        );
+        Map<String, Object> data = Map.of(
+                "members", members,
+                "settings_override", Map.of("ring", ringSettings));
+        Map<String, Object> body = isVideo
+                ? Map.of("ring", true, "video", true, "data", data)
+                : Map.of("ring", true, "data", data);
 
         String token = tokens.issueFor(callerId).token();
         String apiKey = props.stream().apiKey();
