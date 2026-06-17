@@ -4,6 +4,7 @@ import com.company.erp.core.config.AppProperties;
 import com.company.erp.core.exceptions.BadRequestException;
 import com.company.erp.features.employees.entity.Employee;
 import com.company.erp.features.employees.repository.EmployeeRepository;
+import com.company.erp.features.users.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -25,6 +26,7 @@ public class EmployeeAvatarService {
 
     private final EmployeeService employees;
     private final EmployeeRepository employeeRepo;
+    private final UserRepository userRepo;
     private final Path avatarDir;
     private final String publicBaseUrl;
     private final long maxBytes;
@@ -32,9 +34,11 @@ public class EmployeeAvatarService {
 
     public EmployeeAvatarService(EmployeeService employees,
                                  EmployeeRepository employeeRepo,
+                                 UserRepository userRepo,
                                  AppProperties props) {
         this.employees = employees;
         this.employeeRepo = employeeRepo;
+        this.userRepo = userRepo;
         AppProperties.Uploads.Avatar cfg = props.uploads().avatar();
         this.avatarDir     = Paths.get(cfg.dir()).toAbsolutePath().normalize();
         this.publicBaseUrl = trimTrailingSlash(cfg.publicBaseUrl());
@@ -93,7 +97,12 @@ public class EmployeeAvatarService {
         employee.setAvatarUrl(publicBaseUrl + "/" + filename);
         employee.setAvatarContentType(contentType);
         employee.setAvatarUploadedAt(Instant.now());
-        return employeeRepo.save(employee);
+        Employee saved = employeeRepo.save(employee);
+        // Mirror the avatar onto the linked login User so chat surfaces
+        // (MemberDto / UserDto, which read User.avatarUrl) can render a
+        // peer's photo without a separate employee lookup.
+        syncUserAvatar(saved, saved.getAvatarUrl());
+        return saved;
     }
 
     private Employee clear(Employee employee) {
@@ -103,7 +112,27 @@ public class EmployeeAvatarService {
             employee.setAvatarContentType(null);
             employee.setAvatarUploadedAt(null);
         }
+        // Clear the mirrored User.avatarUrl too (idempotent — runs even
+        // when the employee had no avatar, so a stale User value can't
+        // linger).
+        syncUserAvatar(employee, null);
         return employee;
+    }
+
+    /**
+     * Keep {@code User.avatarUrl} in sync with the employee's avatar so
+     * the chat module (and {@code /users}) surface peer photos. No-op when
+     * the employee isn't linked to a login user.
+     */
+    private void syncUserAvatar(Employee employee, String url) {
+        Long userId = employee.getUserId();
+        if (userId == null) return;
+        userRepo.findById(userId).ifPresent(user -> {
+            if (!java.util.Objects.equals(user.getAvatarUrl(), url)) {
+                user.setAvatarUrl(url);
+                userRepo.save(user);
+            }
+        });
     }
 
     private void deleteFileQuietly(String publicUrl) {

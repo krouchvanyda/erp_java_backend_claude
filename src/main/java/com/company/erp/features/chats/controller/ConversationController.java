@@ -11,6 +11,8 @@ import com.company.erp.features.chats.repository.ConversationMemberRepository;
 import com.company.erp.features.chats.repository.MessageRepository;
 import com.company.erp.features.chats.service.ConversationService;
 import com.company.erp.features.chats.ws.ChatBroadcaster;
+import com.company.erp.features.users.entity.User;
+import com.company.erp.features.users.repository.UserRepository;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,15 +31,18 @@ public class ConversationController {
     private final ConversationMemberRepository members;
     private final MessageRepository messages;
     private final ChatBroadcaster broadcaster;
+    private final UserRepository users;
 
     public ConversationController(ConversationService conversations,
                                   ConversationMemberRepository members,
                                   MessageRepository messages,
-                                  ChatBroadcaster broadcaster) {
+                                  ChatBroadcaster broadcaster,
+                                  UserRepository users) {
         this.conversations = conversations;
         this.members = members;
         this.messages = messages;
         this.broadcaster = broadcaster;
+        this.users = users;
     }
 
     /** List all my conversations (inbox), paginated, newest-first. */
@@ -157,7 +162,17 @@ public class ConversationController {
     }
 
     private ConversationDto toDto(Conversation c, Long viewerId, Message lastMessage) {
-        List<MemberDto> mDtos = c.getMembers().stream().map(MemberDto::from).toList();
+        // Resolve each member's display name + avatar in ONE batch query so
+        // the DTO carries it (MemberDto.from) — the client no longer depends on
+        // the RBAC-gated /users cache, which left non-admin viewers showing
+        // "User #<id>" with no avatar.
+        List<Long> memberIds = c.getMembers().stream()
+                .map(ConversationMember::getUserId).toList();
+        Map<Long, User> userById = users.findAllById(memberIds).stream()
+                .collect(Collectors.toMap(User::getId, u -> u));
+        List<MemberDto> mDtos = c.getMembers().stream()
+                .map(m -> MemberDto.from(m, userById.get(m.getUserId())))
+                .toList();
         ConversationMember mine = c.getMembers().stream()
                 .filter(x -> x.getUserId().equals(viewerId))
                 .findFirst().orElse(null);
