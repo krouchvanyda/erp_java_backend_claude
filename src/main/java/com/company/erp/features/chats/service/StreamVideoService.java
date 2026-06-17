@@ -83,22 +83,40 @@ public class StreamVideoService {
         // ring is top-level; members live under data. Caller token => caller is
         // the creator, so created_by_id is implicit and must NOT be sent.
         //
-        // For a VIDEO call we add the documented TOP-LEVEL `video` flag (a
-        // sibling of `ring`/`notify` on GetOrCreateCallRequest — the Stream SDK
-        // sends it) so the VoIP ring push carries `video:"true"`, which the iOS
-        // native handler turns into the CallKit "Video" header.
+        // VIDEO-ONLY change: a video call adds the top-level `video` flag (for
+        // the iOS CallKit "Video" header) AND `data.settings_override.ring` with
+        // 60s timeouts so Stream rings the callee the full 60s (the `default`
+        // call type's dashboard ring timeout wasn't applying → callee auto-MISSED
+        // at ~18s while the backend sweep held the caller to 60s = the mismatch).
+        // `settings_override.ring` is the SDK-validated RingSettingsRequest shape
+        // (all three timeouts supplied so Stream accepts it).
         //
         // A VOICE call keeps the EXACT original body (`{ring:true,
         // data:{members}}`) — no extra field — so voice ringing is byte-for-byte
-        // identical to the long-working behaviour and CANNOT be affected by this
-        // change. (Do NOT use `data.settings_override.video`: Stream rejects that
-        // shape and, because this POST swallows errors, a rejected body silently
-        // kills the whole ring → no incoming call on minimized/killed devices.)
-        Map<String, Object> body = isVideo
-                ? Map.of("ring", true, "video", true,
-                        "data", Map.of("members", members))
-                : Map.of("ring", true,
-                        "data", Map.of("members", members));
+        // identical to the long-working behaviour and is NOT affected by this
+        // change.
+        //
+        // ⚠ A rejected ring body fails SILENTLY (the POST below swallows errors)
+        // → no incoming call. After deploy, confirm `[stream] rang …` and NOT
+        // `[stream] ring failed … status=4xx`. (Do NOT use `settings_override.video`
+        // — that partial shape is what Stream rejected before and killed ringing.)
+        Map<String, Object> body;
+        if (isVideo) {
+            Map<String, Object> ringSettings = Map.of(
+                    "auto_cancel_timeout_ms", 60000,
+                    "incoming_call_timeout_ms", 60000,
+                    "missed_call_timeout_ms", 60000
+            );
+            body = Map.of(
+                    "ring", true,
+                    "video", true,
+                    "data", Map.of(
+                            "members", members,
+                            "settings_override", Map.of("ring", ringSettings))
+            );
+        } else {
+            body = Map.of("ring", true, "data", Map.of("members", members));
+        }
 
         String token = tokens.issueFor(callerId).token();
         String apiKey = props.stream().apiKey();
