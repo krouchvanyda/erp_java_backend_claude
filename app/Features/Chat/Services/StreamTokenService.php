@@ -3,9 +3,9 @@
 namespace App\Features\Chat\Services;
 
 use App\Features\Chat\Dto\StreamTokenDto;
+use App\Support\Auth\Jwt;
 use App\Support\Exceptions\BadRequestException;
 use Carbon\CarbonImmutable;
-use Firebase\JWT\JWT;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -52,7 +52,7 @@ class StreamTokenService
             'exp' => $exp->getTimestamp(),
         ];
 
-        $token = JWT::encode($payload, (string) config('erp.stream.api_secret'), 'HS256');
+        $token = Jwt::encodeHs256($payload, (string) config('erp.stream.api_secret'));
 
         Log::info('[stream] minted token for userId='.$userIdStr.' expiresAt='.$exp->toIso8601String());
         return StreamTokenDto::from($token, (string) config('erp.stream.api_key'), $userIdStr, $exp);

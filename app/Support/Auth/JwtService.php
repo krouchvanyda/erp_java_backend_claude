@@ -3,10 +3,7 @@
 namespace App\Support\Auth;
 
 use App\Support\Exceptions\UnauthorizedException;
-use Firebase\JWT\ExpiredException;
-use Firebase\JWT\JWT;
-use Firebase\JWT\Key;
-use Ramsey\Uuid\Uuid;
+use Illuminate\Support\Str;
 
 /**
  * Issues and parses access / refresh JWTs (HMAC-SHA256), a faithful port of
@@ -53,8 +50,8 @@ class JwtService
     {
         $now = time();
         $exp = $now + $this->accessTtl;
-        $jti = Uuid::uuid4()->toString();
-        $token = JWT::encode([
+        $jti = (string) Str::uuid();
+        $token = Jwt::encodeHs256([
             'iss' => $this->issuer,
             'sub' => (string) $userId,
             'jti' => $jti,
@@ -63,7 +60,7 @@ class JwtService
             self::CLAIM_EMAIL => $email,
             self::CLAIM_PERMISSIONS => array_values($permissions),
             self::CLAIM_TYPE => self::TYPE_ACCESS,
-        ], $this->secret, self::ALG);
+        ], $this->secret);
 
         return ['value' => $token, 'jti' => $jti, 'expiresAt' => $exp];
     }
@@ -75,15 +72,15 @@ class JwtService
     {
         $now = time();
         $exp = $now + $this->refreshTtl;
-        $jti = Uuid::uuid4()->toString();
-        $token = JWT::encode([
+        $jti = (string) Str::uuid();
+        $token = Jwt::encodeHs256([
             'iss' => $this->issuer,
             'sub' => (string) $userId,
             'jti' => $jti,
             'iat' => $now,
             'exp' => $exp,
             self::CLAIM_TYPE => self::TYPE_REFRESH,
-        ], $this->secret, self::ALG);
+        ], $this->secret);
 
         return ['value' => $token, 'jti' => $jti, 'expiresAt' => $exp];
     }
@@ -124,9 +121,7 @@ class JwtService
     private function parse(string $token): array
     {
         try {
-            $decoded = (array) JWT::decode($token, new Key($this->secret, self::ALG));
-        } catch (ExpiredException $e) {
-            throw new UnauthorizedException('Invalid or expired token');
+            $decoded = Jwt::decodeHs256($token, $this->secret);
         } catch (\Throwable $e) {
             throw new UnauthorizedException('Invalid or expired token');
         }

@@ -7,11 +7,12 @@ FROM php:7.4-fpm
 # websockets server, bcmath/zip for general use).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git unzip libpq-dev libzip-dev libonig-dev \
-    && docker-php-ext-install pdo pdo_pgsql pcntl bcmath zip \
+    && docker-php-ext-install pdo pdo_pgsql pcntl bcmath zip mbstring \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Composer
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+# Composer (pinned to 2.7 — reports, rather than blocks on, the security
+# advisories that the EOL Laravel 8 / PHP 7.4 stack inevitably carries).
+COPY --from=composer:2.7 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 
@@ -22,8 +23,10 @@ RUN composer install --no-interaction --no-scripts --no-autoloader --prefer-dist
 # App source
 COPY . .
 
-RUN composer install --no-interaction --optimize-autoloader --no-dev \
-    && composer dump-autoload --optimize \
+# --no-scripts: package discovery runs at first boot (when .env is present),
+# not during the image build.
+RUN composer install --no-interaction --optimize-autoloader --no-dev --no-scripts \
+    && composer dump-autoload --optimize --no-scripts \
     && chown -R www-data:www-data storage bootstrap/cache \
     && chmod -R 775 storage bootstrap/cache
 

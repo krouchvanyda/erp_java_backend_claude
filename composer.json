@@ -9,10 +9,8 @@
         "ext-json": "*",
         "beyondcode/laravel-websockets": "^1.14",
         "fideloper/proxy": "^4.4",
-        "firebase/php-jwt": "^6.4",
         "fruitcake/laravel-cors": "^2.0",
         "guzzlehttp/guzzle": "^7.2",
-        "kreait/laravel-firebase": "^4.2",
         "laravel/framework": "^8.75",
         "laravel/tinker": "^2.5",
         "pusher/pusher-php-server": "^7.0"
@@ -56,8 +54,11 @@
     "config": {
         "optimize-autoloader": true,
         "preferred-install": "dist",
-        "sort-packages": true
+        "sort-packages": true,
+        "platform": {
+            "php": "7.4.33"
+        }
     },
-    "minimum-stability": "dev",
+    "minimum-stability": "stable",
     "prefer-stable": true
 }
