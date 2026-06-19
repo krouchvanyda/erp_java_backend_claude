@@ -20,9 +20,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
@@ -35,6 +38,16 @@ public class ChatCallService {
             Set.of(CallStatus.RINGING, CallStatus.ANSWERED);
     private static final Set<ParticipantStatus> OPEN_PARTICIPANT_STATUSES =
             Set.of(ParticipantStatus.RINGING, ParticipantStatus.ANSWERED);
+
+    /**
+     * callId → callee userIds that were rung via Stream VoIP push (they were
+     * OFFLINE at call start). These have an independent ring channel (native
+     * CallKit / ConnectionService), so a later STOMP drop must NOT cancel their
+     * ring — only the ring timeout governs them. Callees NOT in this set were
+     * online at start (in-app STOMP overlay only), so dropping their socket
+     * means they can no longer answer → safe to auto-cancel. Cleared on call end.
+     */
+    private final Map<Long, Set<Long>> pushRungCallees = new ConcurrentHashMap<>();
 
     private final ChatCallRepository calls;
     private final ChatCallParticipantRepository participants;
@@ -152,6 +165,10 @@ public class ChatCallService {
                 .filter(uid -> !uid.equals(callerId))
                 .filter(uid -> presence.statusOf(uid) == PresenceStatus.OFFLINE)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+        // Remember who got the VoIP push: a later STOMP drop must not cancel
+        // their ring (CallKit/ConnectionService owns it). STOMP-only callees
+        // (everyone else) ARE cancellable on disconnect.
+        pushRungCallees.put(c.getId(), new HashSet<>(ringTargets));
         if (ringTargets.isEmpty()) {
             log.info("[call] callId={} — all callees ONLINE; skipping Stream VoIP ring "
                     + "(in-app overlay handles foreground, no CallKit)", c.getId());
@@ -292,10 +309,56 @@ public class ChatCallService {
         return ended;
     }
 
+    /**
+     * A callee's connection dropped (force-quit / network loss) while they were
+     * still ringing. For each RINGING call where they're an unanswered callee,
+     * mark them MISSED and — if no other callee is still ringing/answered — end
+     * the whole call as MISSED. Group calls with other live callees keep
+     * ringing. Returns the calls that were fully ended so the caller can be
+     * notified immediately (instead of waiting for the ring timeout sweep).
+     */
+    public List<ChatCall> endRingingForDisconnectedCallee(Long userId) {
+        List<ChatCall> ringing = calls.findRingingForCallee(userId);
+        List<ChatCall> ended = new ArrayList<>();
+        for (ChatCall c : ringing) {
+            // If this callee was rung via VoIP push (offline at start), they
+            // still have a native CallKit/ConnectionService ring independent of
+            // the dropped socket — leave them to the ring timeout, don't cancel.
+            if (pushRungCallees.getOrDefault(c.getId(), Set.of()).contains(userId)) {
+                log.info("[call] callee={} dropped but was VoIP-push rung on callId={}; "
+                        + "leaving ring to timeout (not cancelling)", userId, c.getId());
+                continue;
+            }
+            for (ChatCallParticipant p : c.getParticipants()) {
+                if (p.getUserId().equals(userId)
+                        && p.getStatus() == ParticipantStatus.RINGING) {
+                    p.setStatus(ParticipantStatus.MISSED);
+                    p.setLeftAt(Instant.now());
+                }
+            }
+            boolean anyoneActive = c.getParticipants().stream()
+                    .filter(x -> !x.getUserId().equals(c.getCallerId()))
+                    .anyMatch(x -> x.getStatus() == ParticipantStatus.RINGING
+                                || x.getStatus() == ParticipantStatus.ANSWERED);
+            if (!anyoneActive && c.getStatus() == CallStatus.RINGING) {
+                endCallInternal(c, CallStatus.MISSED, "callee_disconnected");
+                ended.add(c);
+                log.info("[call] CALLEE-DISCONNECTED end callId={} callee={}",
+                        c.getId(), userId);
+            } else {
+                log.info("[call] callee={} dropped from group call callId={}; "
+                        + "call continues (other callees active)", userId, c.getId());
+            }
+        }
+        return ended;
+    }
+
     private void endCallInternal(ChatCall c, CallStatus status, String reason) {
         c.setStatus(status);
         c.setEndedAt(Instant.now());
         c.setEndReason(reason);
+        // Call is terminal — drop its push-rung tracking (no leak).
+        pushRungCallees.remove(c.getId());
         if (c.getAnsweredAt() != null) {
             c.setDurationSeconds((int) Duration.between(c.getAnsweredAt(), c.getEndedAt()).getSeconds());
         } else {

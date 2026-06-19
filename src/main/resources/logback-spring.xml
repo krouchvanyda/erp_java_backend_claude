@@ -12,8 +12,22 @@
         </encoder>
     </appender>
 
+    <!-- Dev-only mirror to a fixed file so logs are tailable no matter how the
+         app is launched (IntelliJ Run, gradle bootRun, …). Overwritten each
+         start (append=false). Override the path with -DDEV_LOG_FILE=… ; set it
+         empty to send the file to /dev/null in prod. -->
+    <property name="DEV_LOG_FILE" value="${DEV_LOG_FILE:-/tmp/erp-backend.log}"/>
+    <appender name="DEVFILE" class="ch.qos.logback.core.FileAppender">
+        <file>${DEV_LOG_FILE}</file>
+        <append>false</append>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="DEVFILE"/>
     </root>
 
     <logger name="com.company.erp" level="DEBUG"/>

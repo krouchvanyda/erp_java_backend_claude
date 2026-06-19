@@ -96,6 +96,11 @@ app:
       # FCM + user reaction lag). Accepts within this many seconds of auto-cancel
       # revive the call instead of returning 400.
       accept-grace-seconds: ${CHAT_CALL_ACCEPT_GRACE_SECONDS:5}
+      # Grace after an ONLINE ringing callee's STOMP socket drops (force-quit /
+      # network loss) before we auto-end their RINGING call and tell the caller —
+      # instead of waiting ring-timeout-seconds. Long enough to ride out a
+      # transient reconnect blip; a reconnect within the window skips the cancel.
+      disconnect-grace-seconds: ${CHAT_CALL_DISCONNECT_GRACE_SECONDS:5}
   uploads:
     avatar:
       dir: ${UPLOAD_AVATAR_DIR:./uploads/avatars}

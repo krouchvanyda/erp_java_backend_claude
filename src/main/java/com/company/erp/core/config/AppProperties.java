@@ -29,7 +29,14 @@ public record AppProperties(
                 /** How long a RINGING call survives before the sweeper auto-ends it. */
                 long ringTimeoutSeconds,
                 /** Late-accept tolerance — accepts arriving within this window after auto-cancel revive the call. */
-                long acceptGraceSeconds
+                long acceptGraceSeconds,
+                /**
+                 * Grace window after an online, ringing callee's STOMP socket drops before
+                 * we treat them as gone and auto-end their RINGING call (instead of waiting
+                 * for {@code ringTimeoutSeconds}). Absorbs transient network blips — if the
+                 * client reconnects within this window the cancel is skipped.
+                 */
+                long disconnectGraceSeconds
         ) {}
     }
 

@@ -70,9 +70,14 @@ public class PresenceService {
         if (before != after) emit(userId, after);
     }
 
-    public void disconnect(String sessionId) {
+    /**
+     * Remove a STOMP session. Returns the userId that owned it (or null if the
+     * session was unknown) so the caller can react to the user possibly going
+     * fully offline — e.g. auto-ending a call they were ringing for.
+     */
+    public Long disconnect(String sessionId) {
         Long userId = userBySession.remove(sessionId);
-        if (userId == null) return;
+        if (userId == null) return null;
         Set<String> sessions = sessionsByUser.get(userId);
         if (sessions != null) {
             sessions.remove(sessionId);
@@ -84,6 +89,21 @@ public class PresenceService {
         // Always emit on disconnect: status may have flipped to OFFLINE,
         // or stayed ONLINE/BUSY because other sessions are still up.
         emit(userId, statusOf(userId));
+        return userId;
+    }
+
+    /** True if the user still has at least one live STOMP session. */
+    public boolean hasLiveSession(Long userId) {
+        return userId != null && sessionsByUser.containsKey(userId);
+    }
+
+    /**
+     * True if the user flipped themselves OFFLINE via an explicit "I minimized"
+     * beacon (vs. simply dropping the socket). Lets the disconnect-cancel path
+     * leave an intentional minimize to the VoIP-ring / ring-timeout flow.
+     */
+    public boolean isBackgrounded(Long userId) {
+        return userId != null && backgrounded.contains(userId);
     }
 
     public void markBusy(Long userId) {
