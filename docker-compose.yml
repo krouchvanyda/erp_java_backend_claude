@@ -3,13 +3,11 @@
 #   web         nginx reverse proxy (http://localhost:8080)
 #   app         php-fpm (runs migrate --seed on boot, then serves)
 #   websockets  beyondcode/laravel-websockets (Pusher protocol, port 6001)
-#   db          PostgreSQL 16
+#   db          PostgreSQL 17
 # ===========================================================================
-version: "3.8"
-
 services:
   db:
-    image: postgres:16
+    image: postgres:17
     environment:
       POSTGRES_DB: ${DB_DATABASE:-erp}
       POSTGRES_USER: ${DB_USERNAME:-postgres}
