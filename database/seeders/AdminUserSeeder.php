@@ -12,14 +12,14 @@ use Illuminate\Support\Facades\Log;
  * Creates the seeded super-admin user. Port of AdminBootstrap — the bcrypt hash
  * is produced at runtime (SQL can't). Idempotent.
  *
- *   email:    admin@company.local
+ *   email:    admin@company.com
  *   password: Admin@12345
  *
  * CHANGE THE PASSWORD immediately in any non-local environment.
  */
 class AdminUserSeeder extends Seeder
 {
-    const ADMIN_EMAIL = 'admin@company.local';
+    const ADMIN_EMAIL = 'admin@company.com';
     const ADMIN_PASSWORD = 'Admin@12345';
 
     public function run(): void

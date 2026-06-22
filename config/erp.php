@@ -57,4 +57,12 @@ return [
         ],
     ],
 
+    // STOMP-over-WebSocket realtime (Spring SimpleBroker replacement). The REST
+    // app publishes frames to this Redis channel; erp:stomp-serve fans them out.
+    'stomp' => [
+        'channel' => env('STOMP_REDIS_CHANNEL', 'erp.stomp'),
+        'host' => env('STOMP_HOST', '0.0.0.0'),
+        'port' => (int) env('STOMP_PORT', 8090),
+    ],
+
 ];

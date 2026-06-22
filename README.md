@@ -4,8 +4,8 @@ Enterprise REST + WebSocket API written in **PHP 7.4 + Laravel 8**, designed to
 back a **Flutter mobile app** and a **Nuxt/Vue admin dashboard**. Feature-first
 layout (every feature owns its `Models / Dto / Requests / Services /
 Controllers`), JWT auth with RBAC, PostgreSQL, Laravel migrations + seeders,
-plus a realtime chat and voice/video call subsystem (Laravel WebSockets /
-Pusher protocol + Stream Video + FCM push).
+plus a realtime chat and voice/video call subsystem (native
+STOMP-over-WebSocket + Stream Video + FCM push).
 
 Built on **Laravel 8** and **PHP 7.4**.
 
@@ -20,7 +20,7 @@ Built on **Laravel 8** and **PHP 7.4**.
 | DB               | PostgreSQL 16                                                                 |
 | Migrations       | Laravel migrations + seeders (`php artisan migrate --seed`)                   |
 | Auth             | Custom stateless JWT guard (`firebase/php-jwt`, HS256) + BCrypt              |
-| Realtime         | Laravel WebSockets (`beyondcode/laravel-websockets`, Pusher protocol) + Echo |
+| Realtime         | Native STOMP-over-WebSocket on `/ws` (Ratchet/ReactPHP) + Redis fan-out      |
 | Voice/Video      | [Stream Video](https://getstream.io/video/) (server mints a JWT, client joins)|
 | Push             | Firebase Cloud Messaging via `kreait/laravel-firebase` (data-only call invites)|
 | Rate limiting    | Per-IP cache-backed token bucket middleware                                   |
@@ -115,19 +115,20 @@ cp .env.example .env
 docker compose up --build
 ```
 
-`web` (nginx) listens on `http://localhost:8080`; `app` (php-fpm) runs
-`migrate --seed` on boot; `websockets` serves the Pusher-protocol socket on
-`6001`; Postgres exposes `5432`.
+`web` (nginx) listens on `http://localhost:8080` and proxies `/ws` to the
+`stomp` service; `app` (php-fpm) runs `migrate --seed` on boot; `stomp` serves
+STOMP-over-WebSocket; `redis` holds presence state + the broadcast fan-out;
+Postgres exposes `5432`. The full realtime path works out of the box.
 
-### 2. Run locally (Postgres in Docker, app on host)
+### 2. Run locally (Postgres + Redis in Docker, app on host)
 
 ```bash
-docker compose up -d db
+docker compose up -d db redis
 composer install
 php artisan key:generate
 php artisan migrate --seed
-php artisan serve --port=8080            # REST API
-php artisan websockets:serve             # realtime (separate terminal)
+php artisan serve --port=8080            # REST API (note: /ws needs nginx → use docker for realtime)
+php artisan erp:stomp-serve              # STOMP-over-WebSocket server (separate terminal)
 php artisan schedule:work                # refresh-token purge + call-timeout sweeper
 ```
 
@@ -144,7 +145,7 @@ Created by `AdminUserSeeder` (after `PermissionRoleSeeder` seeds the
 SUPER_ADMIN role). The bcrypt hash is produced at runtime:
 
 ```
-email:    admin@company.local
+email:    admin@company.com
 password: Admin@12345
 ```
 
@@ -271,24 +272,33 @@ GET    /chats/presence[?ids=1,2,3]                presence snapshot / batch
 GET    /chats/presence/{userId}                   single user
 ```
 
-### Realtime transport (Laravel WebSockets + Echo)
+### Realtime transport (native STOMP-over-WebSocket)
 
-Events broadcast over Pusher-protocol channels. Every frame keeps the
-`{ "event": "<name>", "payload": <dto> }` shape (the event name is also the
-broadcast event name; `payload` is the broadcast data):
+A faithful reimplementation of the Spring SimpleBroker, so the **existing
+Flutter STOMP client connects unchanged**. The `stomp` service
+(`php artisan erp:stomp-serve`, Ratchet/ReactPHP) speaks STOMP; nginx proxies
+`/ws` (and `/ws-sockjs`) to it, so realtime shares the same origin/port as the
+REST API. The REST controllers publish frames to a Redis channel which the STOMP
+server fans out.
 
-| Channel                          | Purpose                                      | Visibility |
-|----------------------------------|----------------------------------------------|------------|
-| `conversations.{id}`             | messages / reactions / read / edits / deletes| public     |
-| `presence`                       | presence updates                             | public     |
-| `conversations.{id}.call`        | call signalling (invite/accept/reject/hangup)| public     |
-| `private-user.{userId}.inbox`    | per-user inbox previews                      | private    |
-| `private-user.{userId}.calls`    | per-user incoming-call fan-out               | private    |
+Client contract (identical to the Java backend):
 
-Clients connect Laravel Echo to the websockets server, authenticate private
-channels at `POST /broadcasting/auth` with their `Authorization: Bearer
-<accessToken>` (the `api` guard), and subscribe. Channel authorization lives in
-`routes/channels.php`.
+```
+ws.connect("ws://<host>/ws")
+   CONNECT header  Authorization: Bearer <accessToken>     # JWT → session principal
+
+ws.subscribe("/topic/conversations/{id}")        # message stream
+ws.subscribe("/topic/conversations/{id}/call")   # call signalling
+ws.subscribe("/topic/presence")                  # presence updates
+ws.subscribe("/user/queue/inbox")                # per-user inbox previews
+ws.subscribe("/user/queue/calls")                # per-user incoming-call invites
+```
+
+Server pushes `MESSAGE` frames whose body is `{ "event": "<name>", "payload": <dto> }`.
+`/topic/*` is broadcast; `/user/queue/*` is routed to the authenticated
+principal only (the analogue of Spring's `convertAndSendToUser`). 10s/10s
+heartbeats drive dead-socket detection → presence OFFLINE. Clients only
+SUBSCRIBE; every action is performed over REST.
 
 Presence (`ONLINE` / `BUSY` / `OFFLINE`), read receipts, inbox `lastMessage`
 previews, per-message `readByUserIds`, the 60 s ring timeout
@@ -327,10 +337,12 @@ Tests run against an in-memory SQLite connection (see `phpunit.xml`).
 - **Sub-minute scheduling**: Laravel 8's scheduler is minute-granular, so the
   call-timeout sweeper runs as a command that loops internally every
   `CHAT_CALL_SWEEP_INTERVAL_MS` for ~a minute (`withoutOverlapping`).
-- **Presence ONLINE/OFFLINE** is fed by Laravel WebSockets presence-channel
-  membership / heartbeat; the `BUSY` flag is toggled by the call service.
-- Rate-limit buckets and presence state are process-local (cache store) — use
-  Redis for multi-instance deployments.
+- **Presence ONLINE/OFFLINE** is driven by STOMP CONNECT/DISCONNECT (with the
+  10s heartbeat detecting dead sockets), exactly like the Spring backend; the
+  `BUSY` flag is toggled by the call service.
+- Presence state + rate-limit buckets live in Redis (shared across the app and
+  stomp processes), so a single Redis already covers multi-process; point all
+  instances at one Redis for multi-host.
 
 ## Useful endpoints
 
@@ -343,4 +355,5 @@ Tests run against an in-memory SQLite connection (see `phpunit.xml`).
 - `GET /api/v1/employees/me`
 - `GET /api/v1/chats/conversations` — current user's conversations
 - `GET /api/v1/chats/calls` — call history
-- WebSockets (Pusher protocol) on port `6001` for live chat & call signalling
+- `ws://<host>/ws` — STOMP-over-WebSocket for live chat & call signalling
+  (CONNECT with `Authorization: Bearer <accessToken>`)

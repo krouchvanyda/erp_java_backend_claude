@@ -3,6 +3,7 @@
 namespace App\Console;
 
 use App\Features\Auth\Console\PurgeRefreshTokensCommand;
+use App\Features\Chat\Console\StompServeCommand;
 use App\Features\Chat\Console\SweepCallTimeoutsCommand;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
@@ -17,6 +18,7 @@ class Kernel extends ConsoleKernel
     protected $commands = [
         PurgeRefreshTokensCommand::class,
         SweepCallTimeoutsCommand::class,
+        StompServeCommand::class,
     ];
 
     /**
