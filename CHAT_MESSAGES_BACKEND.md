@@ -309,9 +309,14 @@ allowed-content-types: image/jpeg,image/png,image/webp,image/gif,image/heic,
 
 ### Client status
 
-The Flutter **image** send now uploads here first; **voice** and **file** can
-reuse the exact same endpoint once their client handlers are switched from the
-demo stub to upload-then-send.
+The Flutter **image** and **voice** sends both upload here first (image as
+`image/*`, voice as `audio/mp4` from the `record` package); **file** can reuse
+the exact same endpoint once its client handler is switched from the stub to
+upload-then-send.
+
+> The client sets an explicit `Content-Type` per file extension before posting —
+> required, because the allowlist check rejects the `application/octet-stream`
+> that a multipart upload otherwise defaults to.
 
 ---
 
