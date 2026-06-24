@@ -47,6 +47,44 @@ public class EmployeeService {
                 .orElseThrow(() -> new NotFoundException("Employee profile not found for current user"));
     }
 
+    /**
+     * Ensures the given login user has a linked employee profile, creating a
+     * minimal one from the user's own details when none exists yet. Idempotent:
+     * returns the existing profile untouched if the user is already linked.
+     *
+     * <p>Called when a user account is created (and as a login-time safety net)
+     * so {@code GET /employees/me} never 404s for a freshly-created account —
+     * which previously left the mobile app's profile screen blank.
+     */
+    public Employee ensureProfileForUser(Long userId, String fullName, String email, String phone) {
+        return employees.findByUserId(userId).orElseGet(() -> {
+            Employee e = new Employee();
+            e.setUserId(userId);
+            e.setEmployeeNo(generateEmployeeNo(userId));
+            // employees.full_name is NOT NULL — users.full_name is @NotBlank,
+            // so this is always present, but fall back defensively anyway.
+            e.setFullName((fullName != null && !fullName.isBlank()) ? fullName : email);
+            e.setWorkEmail(email);
+            e.setPhone(phone);
+            e.setStatus(EmployeeStatus.ACTIVE);
+            return employees.save(e);
+        });
+    }
+
+    /**
+     * Deterministic, unique employee number derived from the user id
+     * ({@code EMP-00015}). One employee per user, so the user id keeps it
+     * unique; the existence check only guards against a pre-existing manual
+     * row that happened to claim the same number.
+     */
+    private String generateEmployeeNo(Long userId) {
+        String candidate = String.format("EMP-%05d", userId);
+        if (employees.existsByEmployeeNo(candidate)) {
+            candidate = candidate + "-" + System.currentTimeMillis();
+        }
+        return candidate;
+    }
+
     public Employee create(CreateEmployeeRequest req) {
         if (employees.existsByEmployeeNo(req.employeeNo())) {
             throw new ConflictException("Employee number already in use");

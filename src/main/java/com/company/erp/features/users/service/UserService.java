@@ -6,6 +6,7 @@ import com.company.erp.core.exceptions.NotFoundException;
 import com.company.erp.features.users.dto.AssignRolesRequest;
 import com.company.erp.features.users.dto.CreateUserRequest;
 import com.company.erp.features.users.dto.UpdateUserRequest;
+import com.company.erp.features.employees.service.EmployeeService;
 import com.company.erp.features.users.entity.Role;
 import com.company.erp.features.users.entity.User;
 import com.company.erp.features.users.repository.RoleRepository;
@@ -30,11 +31,14 @@ public class UserService {
     private final UserRepository users;
     private final RoleRepository roles;
     private final PasswordEncoder passwords;
+    private final EmployeeService employees;
 
-    public UserService(UserRepository users, RoleRepository roles, PasswordEncoder passwords) {
+    public UserService(UserRepository users, RoleRepository roles, PasswordEncoder passwords,
+                       EmployeeService employees) {
         this.users = users;
         this.roles = roles;
         this.passwords = passwords;
+        this.employees = employees;
     }
 
     @Transactional(readOnly = true)
@@ -64,7 +68,14 @@ public class UserService {
         user.setFullName(req.fullName());
         user.setPhone(req.phone());
         user.setRoles(new HashSet<>(resolveRoles(req.roles())));
-        return users.save(user);
+        User saved = users.save(user);
+        // Auto-provision a linked employee profile so the new account isn't
+        // left without one — otherwise GET /employees/me 404s and the mobile
+        // profile screen renders blank. Runs in this same transaction, so a
+        // failure here rolls the user creation back too (kept atomic).
+        employees.ensureProfileForUser(
+                saved.getId(), saved.getFullName(), saved.getEmail(), saved.getPhone());
+        return saved;
     }
 
     public User update(Long id, UpdateUserRequest req) {

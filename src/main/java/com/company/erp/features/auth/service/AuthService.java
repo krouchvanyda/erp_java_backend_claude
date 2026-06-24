@@ -48,6 +48,11 @@ public class AuthService {
         if (!passwords.matches(req.password(), user.getPasswordHash())) {
             throw new UnauthorizedException("Invalid email or password");
         }
+        // Self-heal: back-fill a linked employee profile for accounts that
+        // predate auto-provisioning (or were created some other way), so
+        // GET /employees/me stops 404-ing on their next login. Idempotent.
+        employees.ensureProfileForUser(
+                user.getId(), user.getFullName(), user.getEmail(), user.getPhone());
         employees.touchLastLoginByUserId(user.getId());
         return issueTokens(user);
     }
@@ -61,8 +66,10 @@ public class AuthService {
         user.setPasswordHash(passwords.encode(req.password()));
         user.setFullName(req.fullName());
         user.setPhone(req.phone());
-        users.save(user);
-        return issueTokens(user);
+        User saved = users.save(user);
+        employees.ensureProfileForUser(
+                saved.getId(), saved.getFullName(), saved.getEmail(), saved.getPhone());
+        return issueTokens(saved);
     }
 
     public AuthResponse refresh(RefreshRequest req) {
