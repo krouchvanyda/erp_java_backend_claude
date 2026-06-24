@@ -15,8 +15,16 @@ public record AppProperties(
         Chat chat
 ) {
 
-    public record Uploads(Avatar avatar) {
+    public record Uploads(Avatar avatar, ChatAttachment chatAttachment) {
         public record Avatar(
+                String dir,
+                String publicBaseUrl,
+                long maxFileSize,
+                String allowedContentTypes
+        ) {}
+
+        /** Storage for chat message attachments (image / voice / file). */
+        public record ChatAttachment(
                 String dir,
                 String publicBaseUrl,
                 long maxFileSize,

@@ -107,6 +107,11 @@ app:
       public-base-url: ${UPLOAD_AVATAR_PUBLIC_BASE_URL:/uploads/avatars}
       max-file-size: ${UPLOAD_AVATAR_MAX_SIZE:5242880}        # 5 MiB
       allowed-content-types: ${UPLOAD_AVATAR_ALLOWED_TYPES:image/jpeg,image/png,image/webp}
+    chat-attachment:
+      dir: ${UPLOAD_CHAT_DIR:./uploads/chat}
+      public-base-url: ${UPLOAD_CHAT_PUBLIC_BASE_URL:/uploads/chat}
+      max-file-size: ${UPLOAD_CHAT_MAX_SIZE:26214400}         # 25 MiB
+      allowed-content-types: ${UPLOAD_CHAT_ALLOWED_TYPES:image/jpeg,image/png,image/webp,image/gif,image/heic,audio/mpeg,audio/mp4,audio/aac,audio/ogg,audio/wav,application/pdf}
 
 logging:
   level:

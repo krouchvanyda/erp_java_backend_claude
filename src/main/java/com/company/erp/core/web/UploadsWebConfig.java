@@ -19,8 +19,15 @@ public class UploadsWebConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        Path absolute = Paths.get(props.uploads().avatar().dir()).toAbsolutePath().normalize();
-        String pattern = trimTrailingSlash(props.uploads().avatar().publicBaseUrl()) + "/**";
+        serve(registry, props.uploads().avatar().dir(),
+                props.uploads().avatar().publicBaseUrl());
+        serve(registry, props.uploads().chatAttachment().dir(),
+                props.uploads().chatAttachment().publicBaseUrl());
+    }
+
+    private static void serve(ResourceHandlerRegistry registry, String dir, String publicBaseUrl) {
+        Path absolute = Paths.get(dir).toAbsolutePath().normalize();
+        String pattern = trimTrailingSlash(publicBaseUrl) + "/**";
         registry.addResourceHandler(pattern)
                 .addResourceLocations("file:" + absolute + "/");
     }
