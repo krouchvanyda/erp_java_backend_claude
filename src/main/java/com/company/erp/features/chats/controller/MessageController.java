@@ -8,6 +8,7 @@ import com.company.erp.features.chats.entity.ConversationMember;
 import com.company.erp.features.chats.entity.Message;
 import com.company.erp.features.chats.entity.MessageReaction;
 import com.company.erp.features.chats.repository.ConversationMemberRepository;
+import com.company.erp.features.chats.service.ChatMessageNotifier;
 import com.company.erp.features.chats.service.ConversationService;
 import com.company.erp.features.chats.service.MessageService;
 import com.company.erp.features.chats.ws.ChatBroadcaster;
@@ -28,15 +29,18 @@ public class MessageController {
     private final ConversationService conversations;
     private final ConversationMemberRepository members;
     private final ChatBroadcaster broadcaster;
+    private final ChatMessageNotifier pushNotifier;
 
     public MessageController(MessageService messages,
                              ConversationService conversations,
                              ConversationMemberRepository members,
-                             ChatBroadcaster broadcaster) {
+                             ChatBroadcaster broadcaster,
+                             ChatMessageNotifier pushNotifier) {
         this.messages = messages;
         this.conversations = conversations;
         this.members = members;
         this.broadcaster = broadcaster;
+        this.pushNotifier = pushNotifier;
     }
 
     /** Paginated message history for a conversation, newest-first, with read receipts. */
@@ -77,6 +81,9 @@ public class MessageController {
         MessageDto dto = MessageDto.from(m, List.of());
         broadcaster.toConversation(convId, "message.send", dto);
         broadcaster.toUsers(conversations.memberUserIds(convId), "inbox", "message.send", dto);
+        // FCM for members whose app is minimised / killed (STOMP can't reach
+        // them). Sender + muted members are skipped; the send itself is @Async.
+        pushNotifier.notifyNewMessage(m);
         return dto;
     }
 

@@ -35,3 +35,10 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Local secrets — never commit ###
+# Firebase Admin SDK service-account key (full admin access to the project).
+/secrets/
+*firebase-adminsdk*.json
+# Machine-local Spring overrides (auto-loaded from ./config/ by Spring Boot).
+/config/application.properties
