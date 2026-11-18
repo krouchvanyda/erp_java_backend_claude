@@ -109,6 +109,31 @@ public class ChatCallController {
         return dto;
     }
 
+    /**
+     * Callee's device is ringing — tells the caller so their call screen can
+     * switch "Calling…" → "Ringing…". Sent once by the callee app when the
+     * incoming call is shown (in-app sheet, or native ring via push).
+     *
+     * Sends {@code call.ringing {callId, userId, conversationId}} to the
+     * caller's {@code /user/queue/calls} and the call topic (same channels as
+     * {@code call.invite}). Late / repeated reports return {@code notified=false}.
+     */
+    @PostMapping("/calls/{id}/ringing")
+    public Map<String, Object> ringing(@PathVariable Long id) {
+        Long me = AuthenticatedUser.require().userId();
+        ChatCall c = calls.ringing(id, me);
+        if (c == null) {
+            log.info("[call] RINGING callId={} by user={} ignored (not ringing any more)", id, me);
+            return Map.of("callId", id, "notified", false);
+        }
+        log.info("[call] RINGING callId={} by user={} → caller={}", id, me, c.getCallerId());
+        Map<String, Object> payload = Map.of(
+                "callId", id, "userId", me, "conversationId", c.getConversationId());
+        broadcaster.toUser(c.getCallerId(), "calls", "call.ringing", payload);
+        broadcaster.toCall(c.getConversationId(), "call.ringing", payload);
+        return Map.of("callId", id, "notified", true);
+    }
+
     /** Callee accepts a ringing call; flips status to ANSWERED + marks them BUSY. */
     @PostMapping("/calls/{id}/accept")
     public ChatCallDto accept(@PathVariable Long id) {

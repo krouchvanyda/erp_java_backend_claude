@@ -188,6 +188,27 @@ public class ChatCallService {
                 .orElseThrow(() -> new IllegalStateException("Just-created call not found"));
     }
 
+    /**
+     * A callee's device is now ringing (in-app sheet or native CallKit /
+     * ConnectionService ring). Read-only — nothing is stored; the controller
+     * just tells the caller so their screen can switch "Calling…" → "Ringing…".
+     *
+     * @return the call when the caller should be told, or {@code null} when it
+     *         no longer matters (call answered / ended, the caller themself, or
+     *         this callee already answered / rejected). Late or repeated
+     *         reports are ignored instead of failing.
+     */
+    @Transactional(readOnly = true)
+    public ChatCall ringing(Long callId, Long userId) {
+        ChatCall c = getById(callId);
+        if (c.getStatus() != CallStatus.RINGING || userId.equals(c.getCallerId())) {
+            return null;
+        }
+        ChatCallParticipant p = participants.findByCall_IdAndId_UserId(callId, userId)
+                .orElseThrow(() -> new NotFoundException("You are not a participant in this call"));
+        return p.getStatus() == ParticipantStatus.RINGING ? c : null;
+    }
+
     public ChatCall accept(Long callId, Long userId) {
         ChatCall c = getById(callId);
 
