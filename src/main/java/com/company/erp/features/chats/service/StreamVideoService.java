@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletableFuture;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -147,6 +149,65 @@ public class StreamVideoService {
                     streamCallCid, ex.getStatusCode(), ex.getResponseBodyAsString());
         } catch (Exception ex) {
             log.warn("[stream] ring error cid={}: {}", streamCallCid, ex.getMessage());
+        }
+    }
+
+    /**
+     * Creates the Stream call with EVERY participant as a member, without
+     * ringing anyone. Used when all callees are online (no VoIP ring is sent):
+     * otherwise only the caller's app adds members, and when its list missed
+     * the callee, Stream refused the callee's accept with
+     * "Only members can reject or accept a call" → the call showed as
+     * connected but the voice never came up.
+     *
+     * <p>Synchronous (waits at most 3 s) so the Stream call exists with its
+     * members before the caller's app learns the CID and joins. Errors are
+     * logged and swallowed — call signalling must never fail because of
+     * Stream.</p>
+     */
+    public void createWithMembers(String streamCallCid, Long callerId,
+                                  Collection<Long> memberUserIds) {
+        if (!tokens.isEnabled() || streamCallCid == null || streamCallCid.isBlank()) {
+            return;
+        }
+        int sep = streamCallCid.indexOf(':');
+        String type = sep > 0 ? streamCallCid.substring(0, sep) : "default";
+        String id = sep > 0 ? streamCallCid.substring(sep + 1) : streamCallCid;
+        List<Map<String, Object>> members = memberUserIds.stream()
+                .distinct()
+                .map(uid -> Map.<String, Object>of("user_id", String.valueOf(uid)))
+                .toList();
+        long ringMs = Math.max(5, props.chat().call().ringTimeoutSeconds()) * 1000L;
+        Map<String, Object> body = Map.of(
+                "ring", false,
+                "data", Map.of(
+                        "members", members,
+                        "settings_override", Map.of("ring", Map.of(
+                                "auto_cancel_timeout_ms", ringMs,
+                                "incoming_call_timeout_ms", ringMs,
+                                "missed_call_timeout_ms", ringMs))));
+        String token = tokens.issueFor(callerId).token();
+        String apiKey = props.stream().apiKey();
+        try {
+            CompletableFuture.runAsync(() -> http.post()
+                            .uri(uri -> uri.path("/api/v2/video/call/{type}/{id}")
+                                    .queryParam("api_key", apiKey)
+                                    .build(type, id))
+                            .header("Authorization", token)
+                            .header("stream-auth-type", "jwt")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .body(body)
+                            .retrieve()
+                            .toBodilessEntity())
+                    .get(3, TimeUnit.SECONDS);
+            log.info("[stream] created call cid={} caller={} members={} (no ring)",
+                    streamCallCid, callerId, members.size());
+        } catch (Exception ex) {
+            Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+            String detail = cause instanceof RestClientResponseException r
+                    ? r.getStatusCode() + " " + r.getResponseBodyAsString()
+                    : String.valueOf(cause.getMessage());
+            log.warn("[stream] create-with-members failed cid={}: {}", streamCallCid, detail);
         }
     }
 

@@ -172,6 +172,11 @@ public class ChatCallService {
         if (ringTargets.isEmpty()) {
             log.info("[call] callId={} — all callees ONLINE; skipping Stream VoIP ring "
                     + "(in-app overlay handles foreground, no CallKit)", c.getId());
+            // No ring → nobody would add the callees as Stream members except
+            // the caller's app; if it missed one, the callee's accept fails
+            // ("Only members can reject or accept a call") and there's no
+            // voice. Create the Stream call with every member up front.
+            streamVideo.createWithMembers(c.getStreamCallCid(), callerId, memberIds);
         } else {
             // Include the caller so Stream makes them the creator (creators are
             // NOT rung); only the OFFLINE callees in this set receive the push.
