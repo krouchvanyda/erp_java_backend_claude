@@ -7,6 +7,7 @@ import com.company.erp.core.security.Permissions;
 import com.company.erp.features.users.dto.AssignRolesRequest;
 import com.company.erp.features.users.dto.CreateUserRequest;
 import com.company.erp.features.users.dto.UpdateUserRequest;
+import com.company.erp.features.users.dto.CurrentUserDto;
 import com.company.erp.features.users.dto.UserDto;
 import com.company.erp.features.users.service.UserService;
 import jakarta.validation.Valid;
@@ -25,10 +26,10 @@ public class UserController {
         this.users = users;
     }
 
-    /** Get the currently authenticated user (roles + flattened permissions). */
+    /** Get the currently authenticated user's own profile (no roles / permissions). */
     @GetMapping("/me")
-    public UserDto me() {
-        return UserDto.from(users.getById(AuthenticatedUser.require().userId()));
+    public CurrentUserDto me() {
+        return CurrentUserDto.from(users.getById(AuthenticatedUser.require().userId()));
     }
 
     /**

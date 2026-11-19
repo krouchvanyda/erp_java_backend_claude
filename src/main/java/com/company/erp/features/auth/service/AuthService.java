@@ -10,7 +10,7 @@ import com.company.erp.features.auth.dto.*;
 import com.company.erp.features.auth.entity.RefreshToken;
 import com.company.erp.features.auth.repository.RefreshTokenRepository;
 import com.company.erp.features.employees.service.EmployeeService;
-import com.company.erp.features.users.dto.UserDto;
+import com.company.erp.features.users.dto.CurrentUserDto;
 import com.company.erp.features.users.entity.User;
 import com.company.erp.features.users.repository.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -112,6 +112,6 @@ public class AuthService {
         return new AuthResponse(
                 access.value(), access.expiresAt(),
                 refresh.value(), refresh.expiresAt(),
-                UserDto.from(user));
+                CurrentUserDto.from(user));
     }
 }
