@@ -1,4 +1,9 @@
-branch feature/call -> 17-11-2026 -> get data from branch chat_conversation
+# erp_mobile — Learning Rebuild
+
+> 🧱 **Branch `feature/rebuild`**: rebuilding the app from zero, step by step,
+> to learn. Started 2026-11-19 from `feature/call`, where the old working app
+> still lives.
+
 # ERP + E-Commerce Backend API
 Enterprise REST + WebSocket API written in **Java 17 + Spring Boot 3.3**, designed to back a **Flutter mobile app** and a **Nuxt/Vue admin dashboard**. Feature-based MVVM-style layout (every feature owns its `entity / dto / repository / service / controller`), Repository Pattern via Spring Data JPA, JWT auth with RBAC, PostgreSQL, Flyway migrations, plus a realtime chat and voice/video call subsystem (STOMP-over-WebSocket + Stream Video + FCM push).
 
