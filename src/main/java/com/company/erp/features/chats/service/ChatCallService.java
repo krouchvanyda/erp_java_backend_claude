@@ -134,6 +134,11 @@ public class ChatCallService {
             ChatCallParticipant p = new ChatCallParticipant();
             p.setId(new ChatCallParticipantId(c.getId(), uid));
             p.setCall(c);
+            // Keep the in-memory call in sync: the reload below returns this
+            // SAME managed object (Hibernate's first-level cache), so without
+            // this its participants stay empty → the controller's call.invite
+            // fan-out reaches nobody and the callee never rings.
+            c.getParticipants().add(p);
             if (uid.equals(callerId)) {
                 p.setStatus(ParticipantStatus.ANSWERED);
                 p.setJoinedAt(Instant.now());
