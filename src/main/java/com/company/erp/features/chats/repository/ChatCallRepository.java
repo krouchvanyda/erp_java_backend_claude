@@ -52,6 +52,21 @@ public interface ChatCallRepository extends JpaRepository<ChatCall, Long> {
            """)
     List<ChatCall> findRingingForCallee(@Param("userId") Long userId);
 
+    /**
+     * ANSWERED calls in which the given user is still an ANSWERED participant
+     * (caller or callee) — i.e. a call they are talking in. Used to hang up for
+     * them when their connection is gone for good.
+     */
+    @EntityGraph(attributePaths = {"participants"})
+    @Query("""
+            SELECT DISTINCT c FROM ChatCall c
+            JOIN ChatCallParticipant p ON p.call = c
+            WHERE c.status = com.company.erp.features.chats.entity.CallStatus.ANSWERED
+              AND p.id.userId = :userId
+              AND p.status = com.company.erp.features.chats.entity.ParticipantStatus.ANSWERED
+           """)
+    List<ChatCall> findAnsweredForUser(@Param("userId") Long userId);
+
     /** Used by the busy-signal check: is this user mid-call right now? */
     @Query("""
             SELECT COUNT(c) > 0 FROM ChatCall c

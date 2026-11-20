@@ -44,7 +44,16 @@ public record AppProperties(
                  * for {@code ringTimeoutSeconds}). Absorbs transient network blips — if the
                  * client reconnects within this window the cancel is skipped.
                  */
-                long disconnectGraceSeconds
+                long disconnectGraceSeconds,
+                /**
+                 * Grace window after a user who is IN a call (ANSWERED) loses their
+                 * STOMP socket before the server hangs up for them. Longer than
+                 * {@code disconnectGraceSeconds}: dropping a live call by mistake is
+                 * worse than ending a ring. Without this, an app that crashed / was
+                 * killed mid-call left the call ANSWERED forever and the user could
+                 * never start another one ("Caller is already in an active call").
+                 */
+                long answeredDisconnectGraceSeconds
         ) {}
     }
 

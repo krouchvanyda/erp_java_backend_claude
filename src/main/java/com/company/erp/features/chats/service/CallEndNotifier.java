@@ -2,6 +2,7 @@ package com.company.erp.features.chats.service;
 
 import com.company.erp.features.chats.dto.CallParticipantDto;
 import com.company.erp.features.chats.dto.ChatCallDto;
+import com.company.erp.features.chats.entity.CallStatus;
 import com.company.erp.features.chats.entity.ChatCall;
 import com.company.erp.features.chats.entity.ChatCallParticipant;
 import com.company.erp.features.chats.ws.ChatBroadcaster;
@@ -81,6 +82,39 @@ public class CallEndNotifier {
         data.put("reason", fcmReason);
         log.info("[fcm] call.cancel ({}) callId={} → users={} tokens={}",
                 fcmReason, call.getId(), targetUserIds, tokens.size());
+        fcm.sendDataToTokens(tokens, data);
+    }
+
+    /**
+     * {@code userId}'s connection died during an ANSWERED call and the server
+     * hung up for them. Same STOMP event as a normal hang-up, with
+     * {@code reason: "disconnect"}; if that ended the call, also dismiss it on
+     * backgrounded devices (FCM {@code call.cancel}).
+     */
+    public void notifyDisconnectedHangup(ChatCall call, Long userId) {
+        ChatCallDto dto = toDto(call);
+        broadcaster.toCall(call.getConversationId(), "call.hangup", Map.of(
+                "callId",        call.getId(),
+                "hangerUpperId", userId,
+                "reason",        "disconnect",
+                "call",          dto));
+
+        boolean over = call.getStatus() != CallStatus.RINGING
+                && call.getStatus() != CallStatus.ANSWERED;
+        if (!over) return; // a group call goes on without them
+        List<Long> targetUserIds = call.getParticipants().stream()
+                .map(ChatCallParticipant::getUserId)
+                .filter(id -> !id.equals(userId))
+                .toList();
+        List<String> tokens = devices.listForUsers(targetUserIds).stream()
+                .map(Device::getFcmToken)
+                .toList();
+        Map<String, String> data = new HashMap<>();
+        data.put("type",   "call.cancel");
+        data.put("callId", String.valueOf(call.getId()));
+        data.put("reason", "disconnect");
+        log.info("[fcm] call.cancel (disconnect) callId={} → users={} tokens={}",
+                call.getId(), targetUserIds, tokens.size());
         fcm.sendDataToTokens(tokens, data);
     }
 

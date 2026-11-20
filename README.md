@@ -688,11 +688,27 @@ app:
     call:
       ring-timeout-seconds: ${CHAT_CALL_RING_TIMEOUT_SECONDS:60}
       accept-grace-seconds: ${CHAT_CALL_ACCEPT_GRACE_SECONDS:5}
+      answered-disconnect-grace-seconds: ${CHAT_CALL_ANSWERED_DISCONNECT_GRACE_SECONDS:30}
       sweep-interval-ms:    ${CHAT_CALL_SWEEP_INTERVAL_MS:5000}
 ```
 
 Don't push the ring timeout past ~90 s — Stream's coordinator may release
 the call first and you'll get desync from the other side.
+
+### Hang up for a user whose app died mid-call
+
+A user who is IN a call (`ANSWERED`) and loses their STOMP socket (crash,
+killed app, network gone) gets a grace of
+`app.chat.call.answered-disconnect-grace-seconds` (default **30 s**). If they
+haven't reconnected by then, `CallDisconnectHandler` hangs up for them, exactly
+like `POST /calls/{id}/end` (the caller leaving ends the call; the last callee
+leaving ends it; a group call goes on) and broadcasts `call.hangup` with
+`reason: "disconnect"` (+ FCM `call.cancel` when the call ended).
+
+Before this, such a call stayed `ANSWERED` forever and the user's next call
+failed with **"Caller is already in an active call"**. A reconnect within the
+grace (a short network blip) keeps the call. A fast app restart also
+reconnects in time, so it is NOT covered (the app must end its own call).
 
 ### Voice / video media (Stream Video)
 

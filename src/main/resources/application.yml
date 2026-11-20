@@ -101,6 +101,11 @@ app:
       # instead of waiting ring-timeout-seconds. Long enough to ride out a
       # transient reconnect blip; a reconnect within the window skips the cancel.
       disconnect-grace-seconds: ${CHAT_CALL_DISCONNECT_GRACE_SECONDS:5}
+      # Grace after a user who is IN a call (ANSWERED) loses their socket
+      # (crash / killed app / network gone) before the server hangs up for them.
+      # A reconnect within the window keeps the call. Without this, the call
+      # stayed ANSWERED forever → "Caller is already in an active call".
+      answered-disconnect-grace-seconds: ${CHAT_CALL_ANSWERED_DISCONNECT_GRACE_SECONDS:30}
   uploads:
     avatar:
       dir: ${UPLOAD_AVATAR_DIR:./uploads/avatars}

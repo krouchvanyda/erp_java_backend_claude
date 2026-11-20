@@ -393,7 +393,7 @@ Upload a file as multipart form data, field `file`. Upload first, then send a me
 | POST | `/calls/{id}/ringing` | The callee's device is ringing. Tells the caller. Returns `{ callId, notified }` |
 | POST | `/calls/{id}/accept` | Accept the call. Status becomes ANSWERED and the user becomes BUSY. Stops ringing on the user's other devices |
 | POST | `/calls/{id}/reject` | Decline the call. Optional query parameter `reason` (e.g. `busy`) |
-| POST | `/calls/{id}/end` | Hang up. If the caller hangs up, the call ends for everyone. If the last callee hangs up, the call ends |
+| POST | `/calls/{id}/end` | Hang up. If the caller hangs up, the call ends for everyone. If the last callee hangs up, the call ends. The server also does this by itself for a user whose socket is gone for 30 s during an ANSWERED call (`call.hangup` with `reason: "disconnect"`) |
 | GET | `/calls/stream-token` | Get a short-lived Stream Video token for the mobile SDK |
 
 **Start** body: `{ "type": "VOICE" }` or `{ "type": "VIDEO" }`

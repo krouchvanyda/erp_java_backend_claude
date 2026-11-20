@@ -73,6 +73,14 @@ public class CallDisconnectHandler {
                 : props.chat().call().disconnectGraceSeconds();
     }
 
+    /** Grace for a user who is IN a call (ANSWERED). Default 30 s. */
+    private long answeredGraceSeconds() {
+        return (props.chat() == null || props.chat().call() == null
+                || props.chat().call().answeredDisconnectGraceSeconds() <= 0)
+                ? 30L
+                : props.chat().call().answeredDisconnectGraceSeconds();
+    }
+
     /**
      * A STOMP session for {@code userId} just dropped. Schedule a grace re-check;
      * if the user is still gone (didn't reconnect) and didn't merely minimize,
@@ -90,6 +98,33 @@ public class CallDisconnectHandler {
                         userId, ex.getMessage());
             }
         }, graceSeconds(), TimeUnit.SECONDS);
+        // A second, LONGER check for calls they are talking in: a live call
+        // must survive a short network blip, but a crashed / killed app must
+        // not leave the call ANSWERED forever.
+        scheduler.schedule(() -> {
+            try {
+                resolveAnswered(userId);
+            } catch (Exception ex) {
+                log.warn("[call-disconnect] answered re-check failed for user={}: {}",
+                        userId, ex.getMessage());
+            }
+        }, answeredGraceSeconds(), TimeUnit.SECONDS);
+    }
+
+    /** Still gone after the answered grace → hang up for them. */
+    void resolveAnswered(Long userId) {
+        if (presence.hasLiveSession(userId)) {
+            log.info("[call-disconnect] SKIP answered user={} — reconnected (live session)",
+                    userId);
+            return;
+        }
+        List<ChatCall> left = callService.leaveAnsweredForDisconnectedUser(userId);
+        if (left.isEmpty()) return;
+        log.info("[call-disconnect] user={} gone — hung up {} answered call(s)",
+                userId, left.size());
+        for (ChatCall c : left) {
+            notifier.notifyDisconnectedHangup(c, userId);
+        }
     }
 
     private void resolve(Long userId) {

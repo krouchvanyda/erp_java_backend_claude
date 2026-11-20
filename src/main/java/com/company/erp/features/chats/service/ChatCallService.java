@@ -336,6 +336,24 @@ public class ChatCallService {
     }
 
     /**
+     * A user's connection is gone for good while they were IN a call (ANSWERED).
+     * Hang up for them, exactly as if they had tapped "End": the caller leaving
+     * ends the call for everyone, the last callee leaving ends it too, and in a
+     * group the call goes on without them. Returns every call they left, so
+     * the others can be told ({@code call.hangup}).
+     */
+    public List<ChatCall> leaveAnsweredForDisconnectedUser(Long userId) {
+        List<ChatCall> left = new ArrayList<>();
+        for (ChatCall c : calls.findAnsweredForUser(userId)) {
+            hangup(c.getId(), userId);
+            left.add(c);
+            log.info("[call] USER-DISCONNECTED left callId={} user={} → status={}",
+                    c.getId(), userId, c.getStatus());
+        }
+        return left;
+    }
+
+    /**
      * A callee's connection dropped (force-quit / network loss) while they were
      * still ringing. For each RINGING call where they're an unanswered callee,
      * mark them MISSED and — if no other callee is still ringing/answered — end
