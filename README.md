@@ -819,3 +819,6 @@ The Users module is the working reference. To add a new feature `foo`:
 
 ***list pagination users
  http://172.20.17.31:8080/api/v1/users?page=1&pageSize=50
+
+ access-token-ttl: ${JWT_ACCESS_TTL:PT15M}   # 15 minutes
+refresh-token-ttl: ${JWT_REFRESH_TTL:P30D}  # 30 days
