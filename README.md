@@ -522,11 +522,17 @@ connection. The user's id becomes the STOMP session principal (so
 
 | Destination                              | Type   | Payload                                              |
 |------------------------------------------|--------|------------------------------------------------------|
-| `/topic/conversations/{convId}`          | public | message.send / message.edit / message.delete / reaction.toggle / message.read / conversation.update |
+| `/topic/conversations/{convId}`          | public | message.send / message.edit / message.delete / reaction.toggle / message.read / conversation.update / typing |
 | `/topic/presence`                        | public | presence.update — user went ONLINE / BUSY / OFFLINE |
 | `/topic/conversations/{convId}/call`     | public | call.invite / call.accept / call.reject / call.hangup |
 | `/user/queue/inbox`                      | private | conversation.create / conversation.update / conversation.remove / message.send (inbox preview) |
 | `/user/queue/calls`                      | private | call.invite (per-callee fan-out, mirrors the guide)  |
+
+**Client → server (SEND):**
+
+| Destination | Body | Effect |
+|---|---|---|
+| `/app/conversations/{convId}/typing` | `{ "typing": true \| false }` | `TypingController`: if the session user is a member, broadcasts `typing` `{ conversationId, userId, typing }` on `/topic/conversations/{convId}`. The `userId` comes from the STOMP principal (the token), never the body. Non-members / anonymous sessions are ignored silently. Nothing is stored; clients re-send every ~3 s while typing and expire the indicator after ~6 s. |
 
 Every frame is wrapped in this envelope, matching the wire envelopes
 documented in `CHAT_MODULE_GUIDE.md`:
@@ -737,7 +743,7 @@ without Stream configured.
 | Attachment binary upload | Messages carry `attachmentUrl` only | Mirror the employee-avatar pattern under `/api/v1/chats/uploads`, then put the URL in the `SendMessage` body |
 | FCM push for backgrounded calls | ✅ Built — set `FCM_ENABLED=true` + `FCM_SERVICE_ACCOUNT_JSON_PATH` to enable | See **Device tokens + FCM push for incoming calls** above |
 | 60-second ring timeout (configurable) | ✅ Built — `CallTimeoutScheduler` sweeps every 5 s, fans `call.hangup` over STOMP + `call.cancel` over FCM, includes a 5 s accept-grace window | See **Ring timeout + auto-end** above |
-| Typing indicators | Not in the guide | Easy follow-up — `/app/conversations/{id}/typing` STOMP send |
+| Typing indicators | ✅ Built — `TypingController` | SEND `/app/conversations/{id}/typing` `{typing}` → `typing` event on the conversation topic |
 
 ### Tables
 
@@ -820,5 +826,9 @@ The Users module is the working reference. To add a new feature `foo`:
 ***list pagination users
  http://172.20.17.31:8080/api/v1/users?page=1&pageSize=50
 
+## Set Token Expires
  access-token-ttl: ${JWT_ACCESS_TTL:PT15M}   # 15 minutes
 refresh-token-ttl: ${JWT_REFRESH_TTL:P30D}  # 30 days
+
+## Local link swagger for testing
+http://localhost:8080/swagger-ui/index.html#/auth-controller

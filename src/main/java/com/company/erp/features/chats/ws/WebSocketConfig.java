@@ -20,6 +20,8 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
  *   ws.subscribe("/user/queue/calls")                // per-user incoming-call invites
  *   ws.subscribe("/user/queue/inbox")                // per-user inbox previews
  *   ws.subscribe("/topic/presence")                  // online/busy/offline updates
+ *
+ *   ws.send("/app/conversations/42/typing", {"typing": true})   // → "typing" on the conv topic
  * </pre>
  *
  * <p><b>Heartbeats</b> are critical for presence — without them, when a mobile

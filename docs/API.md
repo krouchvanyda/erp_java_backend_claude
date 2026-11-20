@@ -449,8 +449,47 @@ Every event has the same shape: `{ "event": "<name>", "payload": { ... } }`.
 
 | Destination | Events |
 |---|---|
-| `/topic/conversations/{conversationId}` | `message.send`, `message.edit`, `message.delete`, `message.read`, `reaction.toggle`, `conversation.update` |
+| `/topic/conversations/{conversationId}` | `message.send`, `message.edit`, `message.delete`, `message.read`, `reaction.toggle`, `conversation.update`, `typing` |
 | `/topic/conversations/{conversationId}/call` | `call.invite`, `call.ringing`, `call.accept`, `call.reject`, `call.hangup` |
 | `/topic/presence` | Presence changes |
 | `/user/queue/inbox` | `conversation.create`, `conversation.update`, `conversation.remove`, `message.send` |
 | `/user/queue/calls` | `call.invite`, `call.ringing` |
+
+### Sending from the client
+
+#### Typing indicator — `SEND /app/conversations/{conversationId}/typing`
+
+Shows "X is typing…" to the other members of a conversation. It goes over the WebSocket only; there is no REST endpoint for it.
+
+**Send:**
+
+```
+SEND /app/conversations/42/typing
+{ "typing": true }
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `typing` | boolean | `true` while the user is typing, `false` when they stop or send the message. An empty body counts as `true` |
+
+**Everyone subscribed to `/topic/conversations/42` receives:**
+
+```json
+{
+  "event": "typing",
+  "payload": { "conversationId": 42, "userId": 7, "typing": true }
+}
+```
+
+How it works:
+- **The sender is taken from the token,** not from the body. `userId` comes from the access token sent on STOMP `CONNECT`, so it can't be faked.
+- **Only members can send it.** If the sender isn't a member of the conversation, or the connection has no valid token, the message is **silently ignored**. No error is returned, so the socket stays open.
+- **Nothing is saved.** It isn't stored in the database and isn't sent as a push notification. Only users who are connected and subscribed to the conversation see it.
+- **The sender also receives the event.** The event goes to the whole conversation topic, so the client should ignore events whose `userId` is its own.
+
+**What the client should do** (recommended timings; the server doesn't enforce them, but every client should use the same ones — the Flutter app does):
+1. While the user types, send `{ "typing": true }` at most **every 3 seconds**. Don't send it on every keystroke.
+2. Send `{ "typing": false }` after **4 seconds** with no keystroke, and at once when the input is cleared, the message is sent, or the user leaves the screen.
+3. When `typing: true` arrives, show the indicator for that `userId` and (re)start a **6-second** timer. Hide it when `typing: false` arrives, when a message from that user arrives, **or when the timer ends** (so the indicator doesn't stay on if the `false` message is lost).
+
+Keep the hide timer longer than the re-send interval plus network delay (6 s > 3 s + delay); otherwise the indicator flickers on slow networks.
