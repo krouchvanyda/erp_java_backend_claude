@@ -452,7 +452,7 @@ Every event has the same shape: `{ "event": "<name>", "payload": { ... } }`.
 | `/topic/conversations/{conversationId}` | `message.send`, `message.edit`, `message.delete`, `message.read`, `reaction.toggle`, `conversation.update`, `typing` |
 | `/topic/conversations/{conversationId}/call` | `call.invite`, `call.ringing`, `call.accept`, `call.reject`, `call.hangup` |
 | `/topic/presence` | Presence changes |
-| `/user/queue/inbox` | `conversation.create`, `conversation.update`, `conversation.remove`, `message.send` |
+| `/user/queue/inbox` | `conversation.create`, `conversation.update`, `conversation.remove`, `message.send`, `message.edit`, `message.delete` (so the inbox preview of the last message updates) |
 | `/user/queue/calls` | `call.invite`, `call.ringing` |
 
 ### Sending from the client

@@ -87,23 +87,32 @@ public class MessageController {
         return dto;
     }
 
-    /** Edit own TEXT message within 15 minutes of sending. */
+    /** Edit own TEXT message within 15 minutes; broadcasts to the conv topic + inbox. */
     @PatchMapping("/messages/{id}")
     public MessageDto edit(@PathVariable Long id, @Valid @RequestBody EditMessageRequest body) {
         Long me = AuthenticatedUser.require().userId();
         Message m = messages.edit(id, me, body);
         MessageDto dto = MessageDto.from(m, reactionDtos(id));
         broadcaster.toConversation(m.getConversationId(), "message.edit", dto);
+        // Also every member's inbox: if this was the chat's LAST message, the
+        // inbox preview must show the new text (same fan-out as send()).
+        broadcaster.toUsers(conversations.memberUserIds(m.getConversationId()),
+                "inbox", "message.edit", dto);
         return dto;
     }
 
-    /** Soft-delete a message (sender only); body & attachment fields nulled in responses. */
+    /** Soft-delete a message (sender only); body & attachment nulled; broadcasts to the conv topic + inbox. */
     @DeleteMapping("/messages/{id}")
     public MessageDto delete(@PathVariable Long id) {
         Long me = AuthenticatedUser.require().userId();
         Message m = messages.delete(id, me);
         MessageDto dto = MessageDto.from(m, List.of());
         broadcaster.toConversation(m.getConversationId(), "message.delete", dto);
+        // Also every member's inbox: if this was the LAST message, the inbox
+        // preview must move back to the previous one (clients re-fetch the
+        // conversation to learn which).
+        broadcaster.toUsers(conversations.memberUserIds(m.getConversationId()),
+                "inbox", "message.delete", dto);
         return dto;
     }
 

@@ -525,7 +525,7 @@ connection. The user's id becomes the STOMP session principal (so
 | `/topic/conversations/{convId}`          | public | message.send / message.edit / message.delete / reaction.toggle / message.read / conversation.update / typing |
 | `/topic/presence`                        | public | presence.update — user went ONLINE / BUSY / OFFLINE |
 | `/topic/conversations/{convId}/call`     | public | call.invite / call.accept / call.reject / call.hangup |
-| `/user/queue/inbox`                      | private | conversation.create / conversation.update / conversation.remove / message.send (inbox preview) |
+| `/user/queue/inbox`                      | private | conversation.create / conversation.update / conversation.remove / message.send / message.edit / message.delete (inbox preview) |
 | `/user/queue/calls`                      | private | call.invite (per-callee fan-out, mirrors the guide)  |
 
 **Client → server (SEND):**
