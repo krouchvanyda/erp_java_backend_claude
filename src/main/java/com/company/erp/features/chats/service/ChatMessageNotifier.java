@@ -126,6 +126,7 @@ public class ChatMessageNotifier {
             case IMAGE -> "📷 Photo";
             case VOICE -> "🎤 Voice message";
             case FILE -> "📎 File";
+            case CALL -> "📞 Call";
             case TEXT -> {
                 String b = m.getBody() == null ? "" : m.getBody().trim();
                 if (b.isEmpty()) yield "New message";

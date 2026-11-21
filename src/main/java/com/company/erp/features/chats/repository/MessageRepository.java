@@ -15,6 +15,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
            SELECT m FROM Message m
            WHERE m.conversationId = :convId
              AND m.deletedAt IS NULL
+             AND m.type <> com.company.erp.features.chats.entity.MessageType.CALL
              AND LOWER(m.body) LIKE LOWER(CONCAT('%', :q, '%'))
            ORDER BY m.createdAt DESC
            """)

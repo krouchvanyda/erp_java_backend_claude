@@ -695,6 +695,19 @@ app:
 Don't push the ring timeout past ~90 s — Stream's coordinator may release
 the call first and you'll get desync from the other side.
 
+### Call line in the chat (`MessageType.CALL`)
+
+Every call end goes through `ChatCallService.endCallInternal`, which calls
+`CallMessageRecorder.record(call)`. It saves a normal message with
+`type = CALL` (sender = the caller, `durationSeconds` = talk time, `body` =
+JSON `{callId, callType, status, endReason, answered}`), makes it the
+conversation's last message, and sends `message.send` to the conversation
+topic + every member's inbox (the same fan-out as a normal send). So it lives
+in the history, shows in the inbox preview ("📞 Missed voice call"), and
+counts as unread for the callees. Clients can't send `CALL`
+(`MessageService` → 400), and message search skips it. Best effort: a
+failure is logged and never breaks ending the call.
+
 ### Hang up for a user whose app died mid-call
 
 A user who is IN a call (`ANSWERED`) and loses their STOMP socket (crash,

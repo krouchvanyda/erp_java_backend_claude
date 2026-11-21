@@ -158,6 +158,9 @@ public class MessageService {
                     throw new BadRequestException("VOICE message requires attachmentUrl and durationSeconds");
                 }
             }
+            // Call lines come only from the server (CallMessageRecorder), so
+            // nobody can post a fake "Missed call".
+            case CALL -> throw new BadRequestException("CALL messages are created by the server");
         }
     }
 }

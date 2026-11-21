@@ -55,7 +55,7 @@ Paged endpoints take `page` (1-based) and `pageSize`. Some also take `search` an
 | Enum | Values |
 |---|---|
 | `ConversationType` | `DIRECT`, `GROUP` |
-| `MessageType` | `TEXT`, `IMAGE`, `VOICE`, `FILE` |
+| `MessageType` | `TEXT`, `IMAGE`, `VOICE`, `FILE`, `CALL` (server-only: the call line written when a call ends; sender = the caller, `durationSeconds` = talk time, `body` = JSON `{callId, callType, status, endReason, answered}`; clients can't send it, search skips it) |
 | `CallType` | `VOICE`, `VIDEO` |
 | `PresenceStatus` | `ONLINE`, `BUSY`, `OFFLINE` |
 | `DevicePlatform` | `android`, `ios`, `web` |

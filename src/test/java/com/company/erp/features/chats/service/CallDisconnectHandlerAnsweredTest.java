@@ -50,7 +50,7 @@ class CallDisconnectHandlerAnsweredTest {
         AppProperties props = mock(AppProperties.class);
         service = new ChatCallService(calls, participants,
                 mock(ConversationService.class), presence,
-                mock(StreamTokenService.class), mock(StreamVideoService.class), props);
+                mock(StreamTokenService.class), mock(StreamVideoService.class), props, mock(CallMessageRecorder.class));
         handler = new CallDisconnectHandler(presence, service, notifier, props);
 
         call = new ChatCall();

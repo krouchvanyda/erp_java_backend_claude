@@ -37,7 +37,7 @@ class ChatCallServiceRingingTest {
         service = new ChatCallService(calls, participants,
                 mock(ConversationService.class), mock(PresenceService.class),
                 mock(StreamTokenService.class), mock(StreamVideoService.class),
-                mock(AppProperties.class));
+                mock(AppProperties.class), mock(CallMessageRecorder.class));
 
         call = new ChatCall();
         call.setCallerId(CALLER);

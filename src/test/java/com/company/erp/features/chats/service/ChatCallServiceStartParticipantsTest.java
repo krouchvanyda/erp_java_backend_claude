@@ -44,7 +44,7 @@ class ChatCallServiceStartParticipantsTest {
         StreamTokenService tokens = mock(StreamTokenService.class);
         ChatCallService service = new ChatCallService(calls,
                 mock(ChatCallParticipantRepository.class), conversations, presence,
-                tokens, mock(StreamVideoService.class), mock(AppProperties.class));
+                tokens, mock(StreamVideoService.class), mock(AppProperties.class), mock(CallMessageRecorder.class));
 
         when(conversations.memberUserIds(CONV)).thenReturn(new LinkedHashSet<>(List.of(MIN, RIN)));
         when(calls.existsActiveCallForUser(anyLong(), any(), any())).thenReturn(false);

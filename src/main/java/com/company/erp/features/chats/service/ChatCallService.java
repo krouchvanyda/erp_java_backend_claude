@@ -56,6 +56,7 @@ public class ChatCallService {
     private final StreamTokenService streamTokens;
     private final StreamVideoService streamVideo;
     private final AppProperties props;
+    private final CallMessageRecorder callMessages;
 
     public ChatCallService(ChatCallRepository calls,
                            ChatCallParticipantRepository participants,
@@ -63,7 +64,8 @@ public class ChatCallService {
                            PresenceService presence,
                            StreamTokenService streamTokens,
                            StreamVideoService streamVideo,
-                           AppProperties props) {
+                           AppProperties props,
+                           CallMessageRecorder callMessages) {
         this.calls = calls;
         this.participants = participants;
         this.conversations = conversations;
@@ -71,6 +73,7 @@ public class ChatCallService {
         this.streamTokens = streamTokens;
         this.streamVideo = streamVideo;
         this.props = props;
+        this.callMessages = callMessages;
     }
 
     private long ringTimeoutSeconds() {
@@ -413,6 +416,9 @@ public class ChatCallService {
         } else {
             c.setDurationSeconds(0);
         }
+        // The call line in the chat ("📞 Voice call · 2:31" / "Missed call").
+        // This is the ONE place every call end goes through.
+        callMessages.record(c);
         // Clear BUSY for everyone who was active in this call.
         for (ChatCallParticipant p : c.getParticipants()) {
             if (p.getStatus() == ParticipantStatus.ANSWERED
