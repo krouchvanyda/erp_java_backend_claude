@@ -85,6 +85,12 @@ public class ConversationService {
             m.setId(new ConversationMemberId(c.getId(), uid));
             m.setConversation(c);
             m.setRole(uid.equals(actorId) ? MemberRole.ADMIN : MemberRole.MEMBER);
+            // Keep the in-memory conversation in sync: the reload below returns
+            // this SAME managed object (Hibernate's first-level cache), so
+            // without this its members stay empty → the reply and the live
+            // conversation.create carry "members": [] and a direct chat shows
+            // "Chat" instead of the other person's name.
+            c.getMembers().add(m);
             members.save(m);
         }
         // Reload via the EntityGraph so the caller (controller) can read
