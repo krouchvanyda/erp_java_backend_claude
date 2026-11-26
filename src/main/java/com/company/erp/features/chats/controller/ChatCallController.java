@@ -16,6 +16,7 @@ import com.company.erp.features.chats.service.ConversationService;
 import com.company.erp.features.chats.service.StreamTokenService;
 import com.company.erp.features.chats.ws.ChatBroadcaster;
 import com.company.erp.features.devices.entity.Device;
+import com.company.erp.features.devices.entity.DevicePlatform;
 import com.company.erp.features.devices.service.DeviceService;
 import com.company.erp.features.devices.service.FcmService;
 import com.company.erp.features.users.entity.User;
@@ -231,9 +232,23 @@ public class ChatCallController {
         data.put("startedAt",      c.getStartedAt().toString());
         data.put("streamCallCid",  c.getStreamCallCid() == null ? "" : c.getStreamCallCid());
 
-        List<String> tokens = tokensFor(targetIds);
-        log.info("[fcm] call.invite callId={} → users={} tokens={}", c.getId(), targetIds, tokens.size());
-        fcm.sendDataToTokens(tokens, data);
+        // TEST BRANCH: iOS gets a VISIBLE push (iOS shows the banner itself);
+        // Android keeps the data push (the app draws its own ring, Step 7.2).
+        List<Device> devices = deviceService.listForUsers(targetIds);
+        List<String> iosTokens = devices.stream()
+                .filter(d -> d.getPlatform() == DevicePlatform.ios)
+                .map(Device::getFcmToken)
+                .toList();
+        List<String> otherTokens = devices.stream()
+                .filter(d -> d.getPlatform() != DevicePlatform.ios)
+                .map(Device::getFcmToken)
+                .toList();
+        log.info("[fcm] call.invite callId={} → users={} ios={} other={}",
+                c.getId(), targetIds, iosTokens.size(), otherTokens.size());
+        fcm.sendDataToTokens(otherTokens, data);
+        String title = callerName == null || callerName.isBlank() ? "Incoming call" : callerName;
+        String body = "Incoming " + c.getType().name().toLowerCase() + " call";
+        fcm.sendAlertToTokens(iosTokens, title, body, data);
     }
 
     /** If the call has entered a terminal state, fan a cancel to anyone still RINGING. */

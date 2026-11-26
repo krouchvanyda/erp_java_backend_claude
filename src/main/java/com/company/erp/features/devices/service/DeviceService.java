@@ -37,6 +37,14 @@ public class DeviceService {
         devices.delete(d);
     }
 
+    /**
+     * FCM said this token is dead (the app was removed or reinstalled):
+     * forget it, so later pushes don't wait for it and fail again.
+     */
+    public long forgetToken(String fcmToken) {
+        return devices.deleteByFcmToken(fcmToken);
+    }
+
     @Transactional(readOnly = true)
     public List<Device> listForUser(Long userId) {
         return devices.findByUserId(userId);

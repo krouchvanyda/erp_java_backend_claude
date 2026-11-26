@@ -15,4 +15,7 @@ public interface DeviceRepository extends JpaRepository<Device, Long> {
     List<Device> findByUserIdIn(List<Long> userIds);
 
     void deleteByUserIdAndDeviceId(Long userId, String deviceId);
+
+    /** Every row with this token (FCM said it's dead: app removed / reinstalled). */
+    long deleteByFcmToken(String fcmToken);
 }
