@@ -388,7 +388,7 @@ Upload a file as multipart form data, field `file`. Upload first, then send a me
 |---|---|---|
 | GET | `/calls` | My call history across all conversations. Query: `page` (default 1), `pageSize` (default 30) |
 | GET | `/conversations/{convId}/calls` | Call history for one conversation |
-| GET | `/calls/{id}` | A call's current state, e.g. to resync after a reconnect. Includes `callerAvatarUrl` |
+| GET | `/calls/{id}` | A call's current state, e.g. to resync after a reconnect. Includes `callerName` + `callerAvatarUrl` (who is calling) |
 | POST | `/conversations/{convId}/calls` | Start a call. Rings every other member over STOMP and FCM |
 | POST | `/calls/{id}/ringing` | The callee's device is ringing. Tells the caller. Returns `{ callId, notified }` |
 | POST | `/calls/{id}/accept` | Accept the call. Status becomes ANSWERED and the user becomes BUSY. Stops ringing on the user's other devices |

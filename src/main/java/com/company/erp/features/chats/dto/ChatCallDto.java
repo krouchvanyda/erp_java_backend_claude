@@ -27,14 +27,20 @@ public record ChatCallDto(
          * too. Null when the caller has no avatar.
          */
         String callerAvatarUrl,
+        /**
+         * Caller's display name, so the callee's ringing screen shows WHO is
+         * calling at once — no extra conversation lookup (the FCM push already
+         * carries it as {@code callerName}). Null when unknown.
+         */
+        String callerName,
         List<CallParticipantDto> participants
 ) {
     public static ChatCallDto from(ChatCall c, List<CallParticipantDto> participants) {
-        return from(c, participants, null);
+        return from(c, participants, null, null);
     }
 
     public static ChatCallDto from(ChatCall c, List<CallParticipantDto> participants,
-                                   String callerAvatarUrl) {
+                                   String callerAvatarUrl, String callerName) {
         return new ChatCallDto(
                 c.getId(),
                 c.getConversationId(),
@@ -48,6 +54,7 @@ public record ChatCallDto(
                 c.getEndReason(),
                 c.getStreamCallCid(),
                 callerAvatarUrl,
+                callerName,
                 participants);
     }
 }

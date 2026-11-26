@@ -193,13 +193,14 @@ public class ChatCallController {
     private ChatCallDto toDto(ChatCall c) {
         List<CallParticipantDto> participants = c.getParticipants().stream()
                 .map(CallParticipantDto::from).toList();
-        // Resolve the caller's avatar so a killed/minimized Android callee can
-        // render it on the native CallKit ring (fetched via GET /chats/calls/{id}).
-        String callerAvatarUrl = c.getCallerId() == null ? null
-                : users.findById(c.getCallerId())
-                        .map(u -> u.getAvatarUrl())
-                        .orElse(null);
-        return ChatCallDto.from(c, participants, callerAvatarUrl);
+        // WHO is calling (name + photo), so the callee's ringing screen shows
+        // it at once — STOMP call.invite AND GET /chats/calls/{id} (a killed
+        // Android callee opened from the push). One user lookup for both.
+        User caller = c.getCallerId() == null ? null
+                : users.findById(c.getCallerId()).orElse(null);
+        return ChatCallDto.from(c, participants,
+                caller == null ? null : caller.getAvatarUrl(),
+                caller == null ? null : caller.getFullName());
     }
 
     // ---- FCM helpers -------------------------------------------------------
