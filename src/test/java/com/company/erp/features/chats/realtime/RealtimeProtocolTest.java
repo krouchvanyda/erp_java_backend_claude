@@ -235,7 +235,7 @@ class RealtimeProtocolTest {
         protocol.onClose("line-1");
 
         verify(connections, never()).connected(anyLong(), anyString());
-        verify(connections, never()).disconnected(anyString());
+        verify(connections, never()).disconnected(anyString(), any());
     }
 
     @Test
@@ -244,6 +244,24 @@ class RealtimeProtocolTest {
         protocol.onClose("line-1");
         protocol.onClose("line-1");               // a second close callback: ignored
 
-        verify(connections).disconnected("rt:line-1");
+        verify(connections).disconnected("rt:line-1", UserConnections.Drop.CLOSED);
+    }
+
+    @Test
+    void phoneClosesTheSocket_isCLOSED_appGone() {
+        login();
+        protocol.onClose("line-1");               // the OS closed a killed app's socket
+
+        verify(connections).disconnected("rt:line-1", UserConnections.Drop.CLOSED);
+    }
+
+    @Test
+    void sweepClosesASilentLine_isSILENT_maybeOnlyTheNetwork() {
+        login();
+        clock.plus(Duration.ofSeconds(26));       // no letters: lift / Wi-Fi gone
+        protocol.sweep();                         // closes it…
+        protocol.onClose("line-1");               // …and Spring calls back
+
+        verify(connections).disconnected("rt:line-1", UserConnections.Drop.SILENT);
     }
 }

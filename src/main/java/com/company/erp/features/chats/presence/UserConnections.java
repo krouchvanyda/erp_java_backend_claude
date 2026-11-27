@@ -37,13 +37,26 @@ public class UserConnections {
         presence.connect(userId, connectionId);
     }
 
-    /** A connection closed. Returns its user (null if unknown). */
+    /** How a plain-door line ended (R6): the socket CLOSED, or it went SILENT. */
+    public enum Drop {
+        /** The socket was closed: the app closed it, or its OS did (app killed). */
+        CLOSED,
+        /** No letters for 25 s (the sweep closed it): maybe just the network. */
+        SILENT
+    }
+
+    /** A STOMP connection closed (we can't tell how) → the long grace. */
     public Long disconnected(String connectionId) {
+        return disconnected(connectionId, Drop.SILENT);
+    }
+
+    /** A connection closed. Returns its user (null if unknown). */
+    public Long disconnected(String connectionId, Drop how) {
         Long userId = presence.disconnect(connectionId);
         // The socket dropped — if this user was ringing / talking, the call
         // rule re-checks after its grace (blips and minimize are handled there).
         if (userId != null && !presence.hasLiveSession(userId)) {
-            callDisconnect.onUserConnectionDropped(userId);
+            callDisconnect.onUserConnectionDropped(userId, how == Drop.CLOSED);
         }
         return userId;
     }

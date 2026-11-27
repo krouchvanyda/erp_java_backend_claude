@@ -110,6 +110,10 @@ app:
       # A reconnect within the window keeps the call. Without this, the call
       # stayed ANSWERED forever → "Caller is already in an active call".
       answered-disconnect-grace-seconds: ${CHAT_CALL_ANSWERED_DISCONNECT_GRACE_SECONDS:30}
+      # Track B (R6): a user IN a call whose /realtime line was CLOSED (the OS
+      # closes a killed / swiped-away app's socket at once) → hang up after this.
+      # A SILENT line (network gone; the 25 s sweep closes it) keeps the 30 s above.
+      closed-disconnect-grace-seconds: ${CHAT_CALL_CLOSED_DISCONNECT_GRACE_SECONDS:3}
   uploads:
     avatar:
       dir: ${UPLOAD_AVATAR_DIR:./uploads/avatars}

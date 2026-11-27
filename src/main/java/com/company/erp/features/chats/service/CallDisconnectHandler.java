@@ -81,15 +81,29 @@ public class CallDisconnectHandler {
                 : props.chat().call().answeredDisconnectGraceSeconds();
     }
 
+    /** Grace for a user IN a call whose line was CLOSED (app killed). Default 3 s. */
+    private long closedGraceSeconds() {
+        return (props.chat() == null || props.chat().call() == null
+                || props.chat().call().closedDisconnectGraceSeconds() <= 0)
+                ? 3L
+                : props.chat().call().closedDisconnectGraceSeconds();
+    }
+
+    /** The last connection went away; we don't know how (STOMP) → the long grace. */
+    public void onUserConnectionDropped(Long userId) {
+        onUserConnectionDropped(userId, false);
+    }
+
     /**
      * A STOMP session for {@code userId} just dropped. Schedule a grace re-check;
      * if the user is still gone (didn't reconnect) and didn't merely minimize,
      * auto-end any call they were ringing for and tell the caller.
      */
-    public void onUserConnectionDropped(Long userId) {
+    public void onUserConnectionDropped(Long userId, boolean lineClosed) {
         if (userId == null) return;
-        log.info("[call-disconnect] user={} socket dropped — re-check in {}s",
-                userId, graceSeconds());
+        log.info("[call-disconnect] user={} socket {} — re-check in {}s (in a call: {}s)",
+                userId, lineClosed ? "CLOSED (app gone?)" : "dropped",
+                graceSeconds(), answeredGraceFor(lineClosed));
         scheduler.schedule(() -> {
             try {
                 resolve(userId);
@@ -108,7 +122,18 @@ public class CallDisconnectHandler {
                 log.warn("[call-disconnect] answered re-check failed for user={}: {}",
                         userId, ex.getMessage());
             }
-        }, answeredGraceSeconds(), TimeUnit.SECONDS);
+        }, answeredGraceFor(lineClosed), TimeUnit.SECONDS);
+    }
+
+    /**
+     * How long a live call waits for its user to come back (R6):
+     * <pre>
+     *   line CLOSED  (the OS closed the socket: app killed / swiped away) → 3 s
+     *   line SILENT  (no letters for 25 s: lift, Wi-Fi gone) or STOMP     → 30 s
+     * </pre>
+     */
+    long answeredGraceFor(boolean lineClosed) {
+        return lineClosed ? closedGraceSeconds() : answeredGraceSeconds();
     }
 
     /** Still gone after the answered grace → hang up for them. */

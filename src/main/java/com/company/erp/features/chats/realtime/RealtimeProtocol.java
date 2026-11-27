@@ -80,6 +80,7 @@ public class RealtimeProtocol {
         final Instant openedAt;
         volatile Instant lastSeen;
         volatile boolean authed;
+        volatile boolean silent; // closed by the sweep (no letters 25 s), not by the phone
 
         Line(RealtimeClient client, Instant now) {
             this.client = client;
@@ -158,9 +159,15 @@ public class RealtimeProtocol {
      * THIS door. Presence + the call rule are told (R4); they count both doors.
      */
     public Optional<RealtimeSessions.Closed> onClose(String lineId) {
-        lines.remove(lineId);
+        Line line = lines.remove(lineId);
         Optional<RealtimeSessions.Closed> closed = sessions.close(lineId);
-        if (closed.isPresent()) connections.disconnected(connectionId(lineId));
+        if (closed.isPresent()) {
+            // R6: the OS closes a killed app's socket AT ONCE; a network drop is
+            // only noticed by the sweep (silent). Closed → the call ends fast.
+            boolean silent = line != null && line.silent;
+            connections.disconnected(connectionId(lineId),
+                    silent ? UserConnections.Drop.SILENT : UserConnections.Drop.CLOSED);
+        }
         return closed;
     }
 
@@ -179,6 +186,7 @@ public class RealtimeProtocol {
             } else if (line.lastSeen.plus(IDLE_TIMEOUT).isBefore(now)) {
                 log.info("[realtime] line {} silent > {} s → close", line.client.id(),
                         IDLE_TIMEOUT.toSeconds());
+                line.silent = true; // → onClose: maybe only the network (long grace)
                 line.client.close(); // the handler's close callback → onClose
             }
         }

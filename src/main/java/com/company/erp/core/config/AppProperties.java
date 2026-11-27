@@ -53,7 +53,16 @@ public record AppProperties(
                  * killed mid-call left the call ANSWERED forever and the user could
                  * never start another one ("Caller is already in an active call").
                  */
-                long answeredDisconnectGraceSeconds
+                long answeredDisconnectGraceSeconds,
+                /**
+                 * Grace for a user IN a call whose line was CLOSED (not silent):
+                 * the phone's OS closes the socket at once when the app is killed /
+                 * swiped away, while a network drop just goes silent. Closed =
+                 * the app is gone → hang up after this short grace (enough for a
+                 * quick reconnect). Silent lines keep
+                 * {@code answeredDisconnectGraceSeconds}. Plain door only (R6).
+                 */
+                long closedDisconnectGraceSeconds
         ) {}
     }
 

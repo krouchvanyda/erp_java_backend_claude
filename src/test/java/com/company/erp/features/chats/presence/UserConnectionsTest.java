@@ -6,7 +6,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -35,10 +37,11 @@ class UserConnectionsTest {
         connections.connected(5L, "rt:a");
         assertThat(presence.statusOf(5L)).isEqualTo(PresenceStatus.ONLINE);
 
-        assertThat(connections.disconnected("rt:a")).isEqualTo(5L);
+        // the socket was CLOSED (app gone) → the call rule's short grace (R6)
+        assertThat(connections.disconnected("rt:a", UserConnections.Drop.CLOSED)).isEqualTo(5L);
 
         assertThat(presence.statusOf(5L)).isEqualTo(PresenceStatus.OFFLINE);
-        verify(callDisconnect).onUserConnectionDropped(5L);
+        verify(callDisconnect).onUserConnectionDropped(5L, true);
     }
 
     @Test
@@ -49,18 +52,27 @@ class UserConnectionsTest {
         connections.disconnected("rt:b");
 
         assertThat(presence.statusOf(5L)).isEqualTo(PresenceStatus.ONLINE);
-        verify(callDisconnect, never()).onUserConnectionDropped(anyLong());
+        verify(callDisconnect, never()).onUserConnectionDropped(anyLong(), anyBoolean());
 
         connections.disconnected("stomp-session-1");    // now the LAST one
         assertThat(presence.statusOf(5L)).isEqualTo(PresenceStatus.OFFLINE);
-        verify(callDisconnect, times(1)).onUserConnectionDropped(5L);
+        verify(callDisconnect, times(1)).onUserConnectionDropped(5L, false);
+    }
+
+    @Test
+    void plainDoor_silentLine_theCallRuleGetsTheLongGrace() {
+        connections.connected(5L, "rt:a");
+
+        connections.disconnected("rt:a", UserConnections.Drop.SILENT);
+
+        verify(callDisconnect).onUserConnectionDropped(5L, false);
     }
 
     @Test
     void unknownConnection_closing_doesNothing() {
         assertThat(connections.disconnected("rt:never-logged-in")).isNull();
 
-        verify(callDisconnect, never()).onUserConnectionDropped(anyLong());
+        verify(callDisconnect, never()).onUserConnectionDropped(anyLong(), anyBoolean());
     }
 
     @Test
@@ -71,6 +83,6 @@ class UserConnectionsTest {
         connections.disconnected("rt:a");
 
         assertThat(presence.statusOf(7L)).isEqualTo(PresenceStatus.ONLINE);
-        verify(callDisconnect, never()).onUserConnectionDropped(7L);
+        verify(callDisconnect, never()).onUserConnectionDropped(eq(7L), anyBoolean());
     }
 }

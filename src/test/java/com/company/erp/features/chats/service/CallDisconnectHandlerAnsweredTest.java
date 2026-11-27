@@ -116,4 +116,12 @@ class CallDisconnectHandlerAnsweredTest {
 
         verify(notifier, never()).notifyDisconnectedHangup(any(), any());
     }
+
+    @Test
+    void lineClosed_appGone_shortGrace_silentLine_longGrace() {
+        // R6: the OS closes a killed app's socket at once → 3 s;
+        // a silent line (network?) or STOMP → 30 s
+        assertThat(handler.answeredGraceFor(true)).isEqualTo(3L);
+        assertThat(handler.answeredGraceFor(false)).isEqualTo(30L);
+    }
 }
