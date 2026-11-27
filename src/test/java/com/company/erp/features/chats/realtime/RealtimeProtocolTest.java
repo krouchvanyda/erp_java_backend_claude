@@ -6,6 +6,7 @@ import com.company.erp.core.security.AuthenticatedUser;
 import com.company.erp.core.security.JwtService;
 import com.company.erp.features.chats.realtime.RealtimeSessionsTest.FakeClient;
 import com.company.erp.features.chats.dto.TypingRequest;
+import com.company.erp.features.chats.presence.UserConnections;
 import com.company.erp.features.chats.service.ConversationService;
 import com.company.erp.features.chats.ws.TypingController;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,6 +49,7 @@ class RealtimeProtocolTest {
     private TestClock clock;
     private FakeClient phone;
     private TypingController typing;
+    private UserConnections connections;
 
     @BeforeEach
     void setUp() {
@@ -59,9 +61,10 @@ class RealtimeProtocolTest {
         doReturn(new AuthenticatedUser(5L, "bin@x.com", Set.of())).when(jwt).parseAccess("good");
         ConversationService conversations = mock(ConversationService.class);
         typing = mock(TypingController.class);
+        connections = mock(UserConnections.class);
         when(conversations.requireMember(99L, 5L))
                 .thenThrow(new ForbiddenException("Not a member of this conversation"));
-        protocol = new RealtimeProtocol(sessions, jwt, conversations, typing, new ObjectMapper(), clock);
+        protocol = new RealtimeProtocol(sessions, jwt, conversations, typing, connections, new ObjectMapper(), clock);
         phone = new FakeClient("line-1");
         protocol.onOpen(phone);
     }
@@ -217,5 +220,30 @@ class RealtimeProtocolTest {
 
         assertThat(phone.got).last().asString().contains("Unknown destination");
         verify(typing, never()).typing(anyLong(), any(), any());
+    }
+
+    @Test
+    void authOk_tellsPresence_withAPlainDoorId() {
+        login();
+
+        verify(connections).connected(5L, "rt:line-1");
+    }
+
+    @Test
+    void badToken_neverTellsPresence() {
+        protocol.onText(phone, "{\"type\":\"auth\",\"token\":\"expired\"}");
+        protocol.onClose("line-1");
+
+        verify(connections, never()).connected(anyLong(), anyString());
+        verify(connections, never()).disconnected(anyString());
+    }
+
+    @Test
+    void close_ofALoggedInLine_tellsPresence_once() {
+        login();
+        protocol.onClose("line-1");
+        protocol.onClose("line-1");               // a second close callback: ignored
+
+        verify(connections).disconnected("rt:line-1");
     }
 }

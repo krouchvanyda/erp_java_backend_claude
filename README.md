@@ -1,8 +1,18 @@
-# erp_mobile — Learning Rebuild
-
-> 🧱 **Branch `feature/rebuild`**: rebuilding the app from zero, step by step,
-> to learn. Started 2026-11-19 from `feature/call`, where the old working app
-> still lives.
+> 🧱 **Branch `feature/raw-websocket`** (started 2026-11-26 from
+> `feature/rebuild`, which started 2026-11-19 from `feature/call`):
+>
+> ```
+> feature/call ─► feature/rebuild ─► feature/raw-websocket
+> (old working backend)  (the backend for the app rebuild)  (+ Track B: a plain-WebSocket door /realtime next to STOMP /ws)
+> ```
+>
+> This branch = `feature/rebuild` + **Track B**: our own JSON letters on a
+> plain WebSocket (`features/chats/realtime/`), NEXT TO the STOMP door `/ws`
+> (old app builds keep working). Every live letter goes through both doors
+> (`ChatBroadcaster`), and presence + the call rule count connections on both
+> (`presence/UserConnections`). The mobile repo (`erp_flutter_claude`) has a
+> branch with the same name; its lessons are `docs/learning/REBUILD/30-…` to
+> `33-…` there.
 
 # ERP + E-Commerce Backend API
 Enterprise REST + WebSocket API written in **Java 17 + Spring Boot 3.3**, designed to back a **Flutter mobile app** and a **Nuxt/Vue admin dashboard**. Feature-based MVVM-style layout (every feature owns its `entity / dto / repository / service / controller`), Repository Pattern via Spring Data JPA, JWT auth with RBAC, PostgreSQL, Flyway migrations, plus a realtime chat and voice/video call subsystem (STOMP-over-WebSocket + Stream Video + FCM push).
@@ -19,7 +29,7 @@ Enterprise REST + WebSocket API written in **Java 17 + Spring Boot 3.3**, design
 | Migrations       | Flyway 10                                                                     |
 | Auth             | JWT (jjwt 0.12.x) + BCrypt (Spring Security)                                  |
 | Realtime         | STOMP over WebSocket (`spring-boot-starter-websocket`)                        |
-| Realtime (Track B) | Branch `feature/raw-websocket`: a plain-WebSocket door `/realtime` with our own JSON letters, next to `/ws` (in progress: R1 phone book ✅ · R2 door `/realtime` ✅, auth in the first letter · R3 every ChatBroadcaster letter goes through BOTH doors ✅) |
+| Realtime (Track B) | Branch `feature/raw-websocket`: a plain-WebSocket door `/realtime` with our own JSON letters, next to `/ws` (in progress: R1 phone book ✅ · R2 door `/realtime` ✅, auth in the first letter · R3 every ChatBroadcaster letter goes through BOTH doors ✅ · R4 presence + the call rule count connections on both doors (`UserConnections`) ✅) |
 | Voice/Video      | [Stream Video](https://getstream.io/video/) (server issues JWT, client joins) |
 | Push             | Firebase Cloud Messaging (incoming-call invites when app is backgrounded)     |
 | Rate limiting    | Bucket4j (in-memory token bucket per IP)                                      |

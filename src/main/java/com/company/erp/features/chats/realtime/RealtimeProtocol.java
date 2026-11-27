@@ -2,6 +2,7 @@ package com.company.erp.features.chats.realtime;
 
 import com.company.erp.core.security.JwtService;
 import com.company.erp.features.chats.dto.TypingRequest;
+import com.company.erp.features.chats.presence.UserConnections;
 import com.company.erp.features.chats.service.ConversationService;
 import com.company.erp.features.chats.ws.TypingController;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -34,6 +35,9 @@ import java.util.regex.Pattern;
  *         ping → pong
  *         send {destination, body}                (R3: only /app/conversations/{id}/typing)
  *   silent 25 s (no letter, not even ping) → close  (a dead phone)
+ *
+ *   R4: "auth" OK → UserConnections.connected   (presence 🟢)
+ *       close     → UserConnections.disconnected (presence + the call rule)
  * </pre>
  */
 @Component
@@ -63,6 +67,7 @@ public class RealtimeProtocol {
     private final JwtService jwt;
     private final ConversationService conversations;
     private final TypingController typing;
+    private final UserConnections connections;
     private final ObjectMapper json;
     private final RealtimeLetters letters;
     private final Clock clock;
@@ -86,17 +91,18 @@ public class RealtimeProtocol {
     @Autowired
     public RealtimeProtocol(RealtimeSessions sessions, JwtService jwt,
                             ConversationService conversations, TypingController typing,
-                            ObjectMapper json) {
-        this(sessions, jwt, conversations, typing, json, Clock.systemUTC());
+                            UserConnections connections, ObjectMapper json) {
+        this(sessions, jwt, conversations, typing, connections, json, Clock.systemUTC());
     }
 
     RealtimeProtocol(RealtimeSessions sessions, JwtService jwt,
                      ConversationService conversations, TypingController typing,
-                     ObjectMapper json, Clock clock) {
+                     UserConnections connections, ObjectMapper json, Clock clock) {
         this.sessions = sessions;
         this.jwt = jwt;
         this.conversations = conversations;
         this.typing = typing;
+        this.connections = connections;
         this.json = json;
         this.letters = new RealtimeLetters(json);
         this.clock = clock;
@@ -147,10 +153,20 @@ public class RealtimeProtocol {
         }
     }
 
-    /** The line closed (either side). Who left, and was it their last line (R4). */
+    /**
+     * The line closed (either side). Who left, and was it their last line on
+     * THIS door. Presence + the call rule are told (R4); they count both doors.
+     */
     public Optional<RealtimeSessions.Closed> onClose(String lineId) {
         lines.remove(lineId);
-        return sessions.close(lineId);
+        Optional<RealtimeSessions.Closed> closed = sessions.close(lineId);
+        if (closed.isPresent()) connections.disconnected(connectionId(lineId));
+        return closed;
+    }
+
+    /** Presence's id for a plain-door line: never the same as a STOMP session id. */
+    static String connectionId(String lineId) {
+        return "rt:" + lineId;
     }
 
     /** Every 5 s: close lines that never logged in (10 s) or went silent (25 s). */
@@ -173,6 +189,7 @@ public class RealtimeProtocol {
             long userId = jwt.parseAccess(token).userId();
             line.authed = true;
             sessions.authenticate(line.client.id(), userId);
+            connections.connected(userId, connectionId(line.client.id())); // presence 🟢 (R4)
             line.client.send(letters.ready());
         } catch (Exception e) {
             fail(line, "Invalid or expired token");
