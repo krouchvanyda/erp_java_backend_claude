@@ -1,8 +1,29 @@
-# erp_mobile — Learning Rebuild
+> 🧪 **Branch `test/ios-local-call-notification`** (started 2026-11-26 from
+> `feature/rebuild`, which started 2026-11-19 from `feature/call`):
+>
+> ```
+> feature/call ─► feature/rebuild ─► test/ios-local-call-notification
+> (old working backend)  (the backend for the app rebuild)  (+ TEST ONLY: iOS visible call push)
+> ```
+>
+> This branch = `feature/rebuild` + a **test-only** iOS VISIBLE call push
+> (`FcmService.sendAlertToTokens`, category `incoming_call`; `pushInvite`
+> sends it to iOS devices) + dead FCM token cleanup (`UNREGISTERED` →
+> `DeviceService.forgetToken`). **Never release it:** with CallKit an iPhone
+> would ring twice. The mobile repo has a branch with the same name (lesson 29).
 
-> 🧱 **Branch `feature/rebuild`**: rebuilding the app from zero, step by step,
-> to learn. Started 2026-11-19 from `feature/call`, where the old working app
-> still lives.
+**Branches** (the mobile repo `erp_flutter_claude` uses the SAME names):
+
+| Branch | From | Created | What it is |
+|---|---|---|---|
+| `feature/call` | (older work) | before 2026-11-19 | The old, working backend |
+| `feature/rebuild` | `feature/call` | 2026-11-19 | The backend for the app rebuild (main line) |
+| `test/ios-local-call-notification` | `feature/rebuild` | 2026-11-26 | Test only: an iOS VISIBLE call push (+ dead FCM token cleanup) |
+| `feature/raw-websocket` | `feature/rebuild` | 2026-11-26 | **Track B**: the plain-WebSocket door `/realtime` next to STOMP `/ws` |
+| `chat_conversation`, `video_call` | (older work) | before the rebuild | Old experiments |
+
+Rule: every new branch gets a row here (and in the mobile repo's `README.md` +
+`CLAUDE.md`): name · from · date · what it's for.
 
 # ERP + E-Commerce Backend API
 Enterprise REST + WebSocket API written in **Java 17 + Spring Boot 3.3**, designed to back a **Flutter mobile app** and a **Nuxt/Vue admin dashboard**. Feature-based MVVM-style layout (every feature owns its `entity / dto / repository / service / controller`), Repository Pattern via Spring Data JPA, JWT auth with RBAC, PostgreSQL, Flyway migrations, plus a realtime chat and voice/video call subsystem (STOMP-over-WebSocket + Stream Video + FCM push).
