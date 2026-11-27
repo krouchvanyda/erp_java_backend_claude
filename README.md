@@ -885,3 +885,7 @@ refresh-token-ttl: ${JWT_REFRESH_TTL:P30D}  # 30 days
 
 ## Local link swagger for testing
 http://localhost:8080/swagger-ui/index.html#/auth-controller
+
+## Run Backend
+cd ~/Documents/call_erp/erp_java_backend_claude ## (Root location project)
+./gradlew bootRun
