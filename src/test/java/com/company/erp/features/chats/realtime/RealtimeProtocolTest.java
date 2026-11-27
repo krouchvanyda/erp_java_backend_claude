@@ -5,7 +5,9 @@ import com.company.erp.core.exceptions.UnauthorizedException;
 import com.company.erp.core.security.AuthenticatedUser;
 import com.company.erp.core.security.JwtService;
 import com.company.erp.features.chats.realtime.RealtimeSessionsTest.FakeClient;
+import com.company.erp.features.chats.dto.TypingRequest;
 import com.company.erp.features.chats.service.ConversationService;
+import com.company.erp.features.chats.ws.TypingController;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,10 +19,16 @@ import java.time.ZoneId;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /** {@link RealtimeProtocol} — the brain of the door /realtime (R2). */
@@ -39,6 +47,7 @@ class RealtimeProtocolTest {
     private RealtimeProtocol protocol;
     private TestClock clock;
     private FakeClient phone;
+    private TypingController typing;
 
     @BeforeEach
     void setUp() {
@@ -49,9 +58,10 @@ class RealtimeProtocolTest {
         doThrow(new UnauthorizedException("Invalid or expired token")).when(jwt).parseAccess(anyString());
         doReturn(new AuthenticatedUser(5L, "bin@x.com", Set.of())).when(jwt).parseAccess("good");
         ConversationService conversations = mock(ConversationService.class);
+        typing = mock(TypingController.class);
         when(conversations.requireMember(99L, 5L))
                 .thenThrow(new ForbiddenException("Not a member of this conversation"));
-        protocol = new RealtimeProtocol(sessions, jwt, conversations, new ObjectMapper(), clock);
+        protocol = new RealtimeProtocol(sessions, jwt, conversations, typing, new ObjectMapper(), clock);
         phone = new FakeClient("line-1");
         protocol.onOpen(phone);
     }
@@ -179,5 +189,33 @@ class RealtimeProtocolTest {
 
         assertThat(protocol.onClose("line-1")).contains(new RealtimeSessions.Closed(5, true));
         assertThat(sessions.isOnline(5)).isFalse();
+    }
+
+    @Test
+    void send_typing_goesToTypingController_asTheLinesUser() {
+        login();
+        protocol.onText(phone,
+                "{\"type\":\"send\",\"destination\":\"/app/conversations/1/typing\",\"body\":{\"typing\":false}}");
+
+        // WHO = user 5 (this line's token), whatever the body says
+        verify(typing).typing(eq(1L), eq(new TypingRequest(false)),
+                argThat(p -> "5".equals(p.getName())));
+    }
+
+    @Test
+    void send_typing_withoutBody_meansTyping() {
+        login();
+        protocol.onText(phone, "{\"type\":\"send\",\"destination\":\"/app/conversations/1/typing\"}");
+
+        verify(typing).typing(eq(1L), eq(new TypingRequest(true)), any());
+    }
+
+    @Test
+    void send_unknownDestination_error_andNothingCalled() {
+        login();
+        protocol.onText(phone, "{\"type\":\"send\",\"destination\":\"/topic/conversations/1\",\"body\":{}}");
+
+        assertThat(phone.got).last().asString().contains("Unknown destination");
+        verify(typing, never()).typing(anyLong(), any(), any());
     }
 }

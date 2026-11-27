@@ -1,7 +1,6 @@
 package com.company.erp.features.chats.presence;
 
 import com.company.erp.features.chats.ws.ChatBroadcaster;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -43,11 +42,9 @@ public class PresenceService {
     private final Set<Long> backgrounded = ConcurrentHashMap.newKeySet();
 
     private final ChatBroadcaster broadcaster;
-    private final SimpMessagingTemplate template;
 
-    public PresenceService(ChatBroadcaster broadcaster, SimpMessagingTemplate template) {
+    public PresenceService(ChatBroadcaster broadcaster) {
         this.broadcaster = broadcaster;
-        this.template = template;
     }
 
     public void connect(Long userId, String sessionId) {
@@ -180,7 +177,7 @@ public class PresenceService {
         Instant seen = (status == PresenceStatus.OFFLINE) ? lastSeenAt.get(userId) : null;
         PresenceDto dto = new PresenceDto(userId, status, seen);
         // Public topic — anyone interested in any user's presence can subscribe.
-        template.convertAndSend("/topic/presence",
-                Map.of("event", "presence.update", "payload", dto));
+        // (Track B: through ChatBroadcaster → both doors, /ws and /realtime)
+        broadcaster.toPresence("presence.update", dto);
     }
 }

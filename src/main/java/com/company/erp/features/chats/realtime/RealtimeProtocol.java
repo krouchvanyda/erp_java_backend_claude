@@ -1,7 +1,9 @@
 package com.company.erp.features.chats.realtime;
 
 import com.company.erp.core.security.JwtService;
+import com.company.erp.features.chats.dto.TypingRequest;
 import com.company.erp.features.chats.service.ConversationService;
+import com.company.erp.features.chats.ws.TypingController;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -30,7 +32,7 @@ import java.util.regex.Pattern;
  *            └─ bad token    → error + close
  *   then  subscribe / unsubscribe {destination}  (chat topics: members only)
  *         ping → pong
- *         send {destination, body}                (R3)
+ *         send {destination, body}                (R3: only /app/conversations/{id}/typing)
  *   silent 25 s (no letter, not even ping) → close  (a dead phone)
  * </pre>
  */
@@ -54,9 +56,13 @@ public class RealtimeProtocol {
 
     private static final String PRESENCE_TOPIC = "/topic/presence";
 
+    /** The only phone → server address today: "/app/conversations/42/typing". */
+    private static final Pattern TYPING = Pattern.compile("^/app/conversations/(\\d+)/typing$");
+
     private final RealtimeSessions sessions;
     private final JwtService jwt;
     private final ConversationService conversations;
+    private final TypingController typing;
     private final ObjectMapper json;
     private final RealtimeLetters letters;
     private final Clock clock;
@@ -79,15 +85,18 @@ public class RealtimeProtocol {
 
     @Autowired
     public RealtimeProtocol(RealtimeSessions sessions, JwtService jwt,
-                            ConversationService conversations, ObjectMapper json) {
-        this(sessions, jwt, conversations, json, Clock.systemUTC());
+                            ConversationService conversations, TypingController typing,
+                            ObjectMapper json) {
+        this(sessions, jwt, conversations, typing, json, Clock.systemUTC());
     }
 
     RealtimeProtocol(RealtimeSessions sessions, JwtService jwt,
-                     ConversationService conversations, ObjectMapper json, Clock clock) {
+                     ConversationService conversations, TypingController typing,
+                     ObjectMapper json, Clock clock) {
         this.sessions = sessions;
         this.jwt = jwt;
         this.conversations = conversations;
+        this.typing = typing;
         this.json = json;
         this.letters = new RealtimeLetters(json);
         this.clock = clock;
@@ -132,7 +141,7 @@ public class RealtimeProtocol {
             case "ping" -> client.send(letters.pong());
             case "subscribe" -> subscribe(line, letter.path("destination").asText(""));
             case "unsubscribe" -> sessions.unsubscribe(client.id(), letter.path("destination").asText(""));
-            case "send" -> client.send(letters.error("send is not supported yet")); // R3
+            case "send" -> send(line, letter.path("destination").asText(""), letter.path("body"));
             case "auth" -> { } // already logged in on this line
             default -> client.send(letters.error("Unknown letter type: " + type));
         }
@@ -177,6 +186,24 @@ public class RealtimeProtocol {
             return;
         }
         sessions.subscribe(line.client.id(), destination);
+    }
+
+    /**
+     * A letter FROM the phone to a server address (R3). Today only typing.
+     * WHO = this line's user (from its token), never from the body: the same
+     * rule as STOMP's principal. The member check lives in TypingController,
+     * shared by both doors.
+     */
+    private void send(Line line, String destination, JsonNode body) {
+        Matcher m = TYPING.matcher(destination);
+        if (!m.matches()) {
+            line.client.send(letters.error("Unknown destination", destination));
+            return;
+        }
+        long me = sessions.userOf(line.client.id()).orElseThrow();
+        boolean isTyping = !body.has("typing") || body.path("typing").asBoolean(true);
+        typing.typing(Long.parseLong(m.group(1)), new TypingRequest(isTyping),
+                () -> String.valueOf(me));
     }
 
     /** Which addresses may this user listen to? */
