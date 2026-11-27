@@ -1,18 +1,17 @@
-> 🧱 **Branch `feature/raw-websocket`** (started 2026-11-26 from
-> `feature/rebuild`, which started 2026-11-19 from `feature/call`):
+> 🔔 **Branch `feature/chat-notifications`** (started 2026-11-27 from
+> `feature/raw-websocket`, which started 2026-11-26 from `feature/rebuild`,
+> which started 2026-11-19 from `feature/call`):
 >
 > ```
-> feature/call ─► feature/rebuild ─► feature/raw-websocket
-> (old working backend)  (the backend for the app rebuild)  (+ Track B: a plain-WebSocket door /realtime next to STOMP /ws)
+> feature/call ─► feature/rebuild ─► feature/raw-websocket ─► feature/chat-notifications
+> (old working backend)  (rebuild)  (+ Track B: /realtime)  (+ 5.7: chat banners)
 > ```
 >
-> This branch = `feature/rebuild` + **Track B**: our own JSON letters on a
-> plain WebSocket (`features/chats/realtime/`), NEXT TO the STOMP door `/ws`
-> (old app builds keep working). Every live letter goes through both doors
-> (`ChatBroadcaster`), and presence + the call rule count connections on both
-> (`presence/UserConnections`). The mobile repo (`erp_flutter_claude`) has a
-> branch with the same name; its lessons are `docs/learning/REBUILD/30-…` to
-> `33-…` there.
+> This branch = `feature/raw-websocket` + **Step 5.7 chat notifications**:
+> `ChatMessageNotifier` sends a VISIBLE push (`FcmService.sendNotificationToTokens`,
+> Android channel `chat_messages`, one banner per chat) only to members who
+> are OFFLINE (app minimized / killed); an open app updates live. The mobile
+> repo has a branch with the same name (lesson `17b-chat-notifications.md`).
 
 **Branches** (the mobile repo `erp_flutter_claude` uses the SAME names):
 
@@ -22,6 +21,7 @@
 | `feature/rebuild` | `feature/call` | 2026-11-19 | The backend for the app rebuild (main line) |
 | `test/ios-local-call-notification` | `feature/rebuild` | 2026-11-26 | Test only: an iOS VISIBLE call push (+ dead FCM token cleanup) |
 | `feature/raw-websocket` | `feature/rebuild` | 2026-11-26 | **Track B**: the plain-WebSocket door `/realtime` next to STOMP `/ws` |
+| `feature/chat-notifications` | `feature/raw-websocket` | 2026-11-27 | Step 5.7: a VISIBLE chat push to OFFLINE members (the app opens the chat on tap) |
 | `chat_conversation`, `video_call` | (older work) | before the rebuild | Old experiments |
 
 Rule: every new branch gets a row here (and in the mobile repo's `README.md` +

@@ -1,5 +1,7 @@
 package com.company.erp.features.chats.service;
 
+import com.company.erp.features.chats.presence.PresenceStatus;
+import com.company.erp.features.chats.presence.PresenceService;
 import com.company.erp.features.chats.entity.Conversation;
 import com.company.erp.features.chats.entity.ConversationMember;
 import com.company.erp.features.chats.entity.ConversationMemberId;
@@ -24,6 +26,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -39,6 +44,7 @@ class ChatMessageNotifierTest {
     private UserRepository users;
     private DeviceService devices;
     private FcmService fcm;
+    private PresenceService presence;
     private ChatMessageNotifier notifier;
 
     @BeforeEach
@@ -48,7 +54,11 @@ class ChatMessageNotifierTest {
         users = mock(UserRepository.class);
         devices = mock(DeviceService.class);
         fcm = mock(FcmService.class);
-        notifier = new ChatMessageNotifier(conversations, members, users, devices, fcm);
+        presence = mock(PresenceService.class);
+        notifier = new ChatMessageNotifier(conversations, members, users, devices, fcm, presence);
+
+        // 5.7: everyone is OFFLINE (app minimized / killed) unless a test says so
+        when(presence.statusOf(anyLong())).thenReturn(PresenceStatus.OFFLINE);
 
         when(fcm.isReady()).thenReturn(true);
         when(users.findById(BIN)).thenReturn(Optional.of(user("Mr Bin")));
@@ -114,7 +124,7 @@ class ChatMessageNotifierTest {
         notifier.notifyNewMessage(text("Hello"));
 
         verifyNoInteractions(members, devices, conversations, users);
-        verify(fcm, never()).sendDataToTokens(anyList(), any());
+        verify(fcm, never()).sendNotificationToTokens(anyList(), any(), any(), any(), any());
     }
 
     @Test
@@ -123,7 +133,44 @@ class ChatMessageNotifierTest {
 
         notifier.notifyNewMessage(text("Hello"));
 
+        verify(fcm, never()).sendNotificationToTokens(anyList(), any(), any(), any(), any());
+    }
+
+    @Test
+    void visiblePush_titleAndBodyAreTheBanner_oneNotificationPerChat() {
+        when(conversations.findById(CONV)).thenReturn(Optional.of(conversation(ConversationType.DIRECT, null)));
+        when(members.findByConversation_Id(CONV)).thenReturn(List.of(member(BIN, false), member(VIN, false)));
+
+        notifier.notifyNewMessage(text("Hello Vin"));
+
+        // the OS shows "Mr Bin / Hello Vin"; group "chat-12" → newest replaces older
+        verify(fcm).sendNotificationToTokens(eq(List.of("token-" + VIN)), eq("Mr Bin"), eq("Hello Vin"),
+                anyMap(), eq("chat-12"));
         verify(fcm, never()).sendDataToTokens(anyList(), any());
+    }
+
+    @Test
+    void onlineMembers_getNoBanner_theirScreenUpdatesLive() {
+        when(conversations.findById(CONV)).thenReturn(Optional.of(conversation(ConversationType.GROUP, "Team A")));
+        when(members.findByConversation_Id(CONV))
+                .thenReturn(List.of(member(BIN, false), member(VIN, false), member(SOK, false)));
+        when(presence.statusOf(VIN)).thenReturn(PresenceStatus.ONLINE);   // app open
+        when(presence.statusOf(SOK)).thenReturn(PresenceStatus.OFFLINE);  // minimized
+
+        notifier.notifyNewMessage(text("Meeting at 3"));
+
+        verify(devices).listForUsers(List.of(SOK));
+    }
+
+    @Test
+    void noPush_whenEveryoneElseIsOnline() {
+        when(members.findByConversation_Id(CONV)).thenReturn(List.of(member(BIN, false), member(VIN, false)));
+        when(presence.statusOf(VIN)).thenReturn(PresenceStatus.ONLINE);
+
+        notifier.notifyNewMessage(text("Hello"));
+
+        verifyNoInteractions(devices);
+        verify(fcm, never()).sendNotificationToTokens(anyList(), any(), any(), any(), any());
     }
 
     // ---- helpers ---------------------------------------------------------
@@ -132,7 +179,7 @@ class ChatMessageNotifierTest {
     private Map<String, String> capturePush(List<String> expectedTokens) {
         ArgumentCaptor<List<String>> tokens = ArgumentCaptor.forClass(List.class);
         ArgumentCaptor<Map<String, String>> data = ArgumentCaptor.forClass(Map.class);
-        verify(fcm).sendDataToTokens(tokens.capture(), data.capture());
+        verify(fcm).sendNotificationToTokens(tokens.capture(), any(), any(), data.capture(), eq("chat-" + CONV));
         assertThat(tokens.getValue()).containsExactlyElementsOf(expectedTokens);
         return data.getValue();
     }

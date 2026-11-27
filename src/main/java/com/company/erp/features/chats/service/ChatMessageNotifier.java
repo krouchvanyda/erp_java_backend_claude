@@ -4,6 +4,8 @@ import com.company.erp.features.chats.entity.Conversation;
 import com.company.erp.features.chats.entity.ConversationMember;
 import com.company.erp.features.chats.entity.ConversationType;
 import com.company.erp.features.chats.entity.Message;
+import com.company.erp.features.chats.presence.PresenceService;
+import com.company.erp.features.chats.presence.PresenceStatus;
 import com.company.erp.features.chats.repository.ConversationMemberRepository;
 import com.company.erp.features.chats.repository.ConversationRepository;
 import com.company.erp.features.devices.entity.Device;
@@ -24,14 +26,16 @@ import java.util.Objects;
  * FCM push for a newly sent chat message — the chat counterpart of
  * {@link CallEndNotifier}.
  *
- * <p>STOMP already delivers the message to members whose app is open; this
- * push covers members whose app is minimised or killed (socket gone) and
- * lets the mobile app show a banner. It is a <b>data-only</b> message, like
- * the call pushes, so the app renders it itself (tap → opens the
- * conversation; no banner while the user is already viewing that chat).
+ * <p>The live line (WebSocket) already delivers the message to members whose
+ * app is open; this push covers members whose app is minimised or killed and
+ * shows a banner. Step 5.7: a <b>VISIBLE</b> push (the OS draws it, iOS too;
+ * {@link FcmService#sendNotificationToTokens}), one per chat (newest wins), and
+ * a tap opens the conversation.
  *
- * <p>Recipients: every member except the sender and members who muted the
- * conversation. Payload:
+ * <p>Recipients: every member except the sender, members who muted the
+ * conversation, and members who are not OFFLINE (app open = the screen
+ * updates live, so no banner for a chat you're reading). A minimised app is
+ * OFFLINE at once ({@code /presence/background}). Payload (data):
  * <pre>{ type: "chat", conversationId, messageId, senderId, senderName,
  *   isGroup, title, body }</pre>
  * Title is the sender (direct) or the group name (group, body prefixed with
@@ -50,17 +54,20 @@ public class ChatMessageNotifier {
     private final UserRepository users;
     private final DeviceService devices;
     private final FcmService fcm;
+    private final PresenceService presence;
 
     public ChatMessageNotifier(ConversationRepository conversations,
                                ConversationMemberRepository members,
                                UserRepository users,
                                DeviceService devices,
-                               FcmService fcm) {
+                               FcmService fcm,
+                               PresenceService presence) {
         this.conversations = conversations;
         this.members = members;
         this.users = users;
         this.devices = devices;
         this.fcm = fcm;
+        this.presence = presence;
     }
 
     public void notifyNewMessage(Message m) {
@@ -73,6 +80,8 @@ public class ChatMessageNotifier {
                 .map(ConversationMember::getUserId)
                 .filter(Objects::nonNull)
                 .filter(id -> !id.equals(m.getSenderId()))
+                // app open → the screen updates live; only OFFLINE gets a banner
+                .filter(id -> presence.statusOf(id) == PresenceStatus.OFFLINE)
                 .toList();
         if (targetIds.isEmpty()) return;
 
@@ -116,7 +125,7 @@ public class ChatMessageNotifier {
 
         log.info("[fcm] chat msg={} conv={} → users={} tokens={}",
                 m.getId(), convId, targetIds, tokens.size());
-        fcm.sendDataToTokens(tokens, data);
+        fcm.sendNotificationToTokens(tokens, title, body, data, "chat-" + convId);
     }
 
     /** Text body (trimmed + capped), or a label for media messages. */
