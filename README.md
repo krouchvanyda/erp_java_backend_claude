@@ -19,7 +19,7 @@ Enterprise REST + WebSocket API written in **Java 17 + Spring Boot 3.3**, design
 | Migrations       | Flyway 10                                                                     |
 | Auth             | JWT (jjwt 0.12.x) + BCrypt (Spring Security)                                  |
 | Realtime         | STOMP over WebSocket (`spring-boot-starter-websocket`)                        |
-| Realtime (Track B) | Branch `feature/raw-websocket`: a plain-WebSocket door `/realtime` with our own JSON letters, next to `/ws` (in progress: R1 `chats/realtime/RealtimeSessions` ✅) |
+| Realtime (Track B) | Branch `feature/raw-websocket`: a plain-WebSocket door `/realtime` with our own JSON letters, next to `/ws` (in progress: R1 phone book ✅ · R2 door `/realtime` ✅, auth in the first letter) |
 | Voice/Video      | [Stream Video](https://getstream.io/video/) (server issues JWT, client joins) |
 | Push             | Firebase Cloud Messaging (incoming-call invites when app is backgrounded)     |
 | Rate limiting    | Bucket4j (in-memory token bucket per IP)                                      |

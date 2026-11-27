@@ -59,6 +59,7 @@ public class SecurityConfig {
                                 "/ws/**",
                                 "/uploads/**",
                                 "/ws-sockjs/**",
+                                "/realtime",          // Track B: plain WebSocket (token in the first letter)
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/register",
                                 "/api/v1/auth/refresh"
